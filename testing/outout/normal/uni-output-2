@@ -1,0 +1,26 @@
+The original input was: 2 ( 0 1 5 1 ) ( 0 1 5 1 ) 
+The (sorted) input is:  2 ( 0 1 5 1 ) ( 0 1 5 1 ) 
+
+The scheduling algorithm used was Uniprocessing
+
+Process 0:
+	(A,B,C,M) = (0,1,5,1)
+	Finishing time: 9
+	Turnaround time: 9
+	I/O time: 4
+	Waiting time: 0
+
+Process 1:
+	(A,B,C,M) = (0,1,5,1)
+	Finishing time: 18
+	Turnaround time: 18
+	I/O time: 4
+	Waiting time: 9
+
+Summary Data:
+	Finishing time: 18
+	CPU Utilization: 0.555556
+	I/O Utilization: 0.444444
+	Throughput: 11.111111 processes per hundred cycles
+	Average turnaround time: 13.500000
+	Average waiting time: 4.500000

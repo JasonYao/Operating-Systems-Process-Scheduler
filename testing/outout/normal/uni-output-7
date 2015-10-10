@@ -1,0 +1,33 @@
+The original input was: 3 ( 0 1 20 1 ) ( 0 1 20 1 ) ( 10 1 10 1 ) 
+The (sorted) input is:  3 ( 0 1 20 1 ) ( 0 1 20 1 ) ( 10 1 10 1 ) 
+
+The scheduling algorithm used was Uniprocessing
+
+Process 0:
+	(A,B,C,M) = (0,1,20,1)
+	Finishing time: 39
+	Turnaround time: 39
+	I/O time: 19
+	Waiting time: 0
+
+Process 1:
+	(A,B,C,M) = (0,1,20,1)
+	Finishing time: 78
+	Turnaround time: 78
+	I/O time: 19
+	Waiting time: 39
+
+Process 2:
+	(A,B,C,M) = (10,1,10,1)
+	Finishing time: 97
+	Turnaround time: 87
+	I/O time: 9
+	Waiting time: 68
+
+Summary Data:
+	Finishing time: 97
+	CPU Utilization: 0.515464
+	I/O Utilization: 0.484536
+	Throughput: 3.092784 processes per hundred cycles
+	Average turnaround time: 68.000000
+	Average waiting time: 35.666668

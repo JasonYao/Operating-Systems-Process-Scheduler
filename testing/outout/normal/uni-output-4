@@ -1,0 +1,47 @@
+The original input was: 5 ( 0 3 200 3 ) ( 0 9 500 2 ) ( 0 20 500 1 ) ( 100 1 100 3 ) ( 100 100 500 1 ) 
+The (sorted) input is:  5 ( 0 3 200 3 ) ( 0 9 500 2 ) ( 0 20 500 1 ) ( 100 1 100 3 ) ( 100 100 500 1 ) 
+
+The scheduling algorithm used was Uniprocessing
+
+Process 0:
+	(A,B,C,M) = (0,3,200,3)
+	Finishing time: 791
+	Turnaround time: 791
+	I/O time: 591
+	Waiting time: 0
+
+Process 1:
+	(A,B,C,M) = (0,9,500,2)
+	Finishing time: 2285
+	Turnaround time: 2285
+	I/O time: 994
+	Waiting time: 791
+
+Process 2:
+	(A,B,C,M) = (0,20,500,1)
+	Finishing time: 3281
+	Turnaround time: 3281
+	I/O time: 496
+	Waiting time: 2285
+
+Process 3:
+	(A,B,C,M) = (100,1,100,3)
+	Finishing time: 3678
+	Turnaround time: 3578
+	I/O time: 297
+	Waiting time: 3181
+
+Process 4:
+	(A,B,C,M) = (100,100,500,1)
+	Finishing time: 4590
+	Turnaround time: 4490
+	I/O time: 412
+	Waiting time: 3578
+
+Summary Data:
+	Finishing time: 4590
+	CPU Utilization: 0.392157
+	I/O Utilization: 0.607843
+	Throughput: 0.108932 processes per hundred cycles
+	Average turnaround time: 2885.000000
+	Average waiting time: 1967.000000
