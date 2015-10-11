@@ -5,7 +5,7 @@ By Jason Yao, [github](https://github.com/JasonYao/Operating-Systems-Process-Sch
 ## Description
 
 Processes are defined as a program in execution. Process scheduling occurs when a process manager utilises
-time multiplexing in order to *simulate* parallel computation (NOTE: this is *NOT* true parallelism, which occurs when the system has more than one processor).
+time multiplexing in order to *simulate* parallel computation (NOTE: this is **NOT** true parallelism, which occurs when the system has more than one processor).
 This is sometimes known as pseudo-parallelism due to the illusion from the user's perspective that the OS is running on more than a single processor.
 
 ![A multiprogramming overview](img/multiprogramming.png "A multiprogramming overview")
@@ -27,11 +27,11 @@ This scheduler in particular reads in processes, in the `ABCM` format, such that
 
 - `M`: The multiplier for the I/O burst time (I/O burst time = preceding CPU burst time * M)
 
-### Different scheduling algorithms
+### Different Scheduling Algorithms
 
 This program will simulate four different scheduling algorithms, assuming for simplicity that a context switch takes 0 time. These scheduling algorithms are:
 
-- `FCFS`: `First Come First Serve`, a non-pre-emptive, so that the currently running process continues until termination or blocking.
+- `FCFS`: `First Come First Serve`, a non-pre-emptive algorithm, so that the currently running process continues until termination or blocking.
 
 	- [NOTE]: Process can 'hog' the processor, disallowing other processes from running.
 
@@ -43,11 +43,11 @@ This program will simulate four different scheduling algorithms, assuming for si
 
 		- [Quantum Values]: For 'reasonable fairness', let the quantum = 1ms on a system with 1 GiB instructions/second, and 1M instructions, resulting in 1/1,000,000 CPU time lost in context switching.
 
-		- [Quantum Values]: Let quantum for all process = ∞, which will result in no pre-emption, and thus returns to the classical `FCFS`.
+		- [Quantum Values]: Let quantum for all process = ∞, which will result in no pre-emption, and thus turns into classical `FCFS`.
 
-- `Uniprogrammed`: Pretty self-explanatory, there is only one process active at any time- when the process is blocked, the system stalls (waits). Is *NON*-preemptive by definition.
+- `Uniprogrammed`: Pretty self-explanatory, there is only one process active at any time- when the process is blocked, the system stalls (waits). Is **NON**-preemptive by definition.
 
-- `SJF`: `Shortest Job First`, a *NON*-preemptive algorithm that *DOES* switch upon blocking (i.e. I/O bursts)
+- `SJF`: `Shortest Job First`, a **NON**-preemptive algorithm **BUT** switch upon blocking (i.e. I/O bursts)
 
 	- [NOTE]: In this case, priority will be determined by the total remaining time (the process's `C` value - the current number of cycles this process has run).
 
@@ -71,11 +71,7 @@ This program will simulate four different scheduling algorithms, assuming for si
 
 - Preemption is expensive.
 
-## Usage
-
-### Normal Usage
-
-### Setting Flags
+## Usage and Setting Flags
 
 It should be noted that this scheduler can be run with multiple flags, depending on the level of detail/verbosity the user would like. In particular:
 
@@ -98,8 +94,6 @@ E.g.: With random number output
 E.g.: With both verbose and random number output
 
 `./scheduler --verbose --random testing/input/input-1`
-
-## Examples
 
 ## License
 This repo is licensed as described in the [license file](LICENSE.md).
