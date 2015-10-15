@@ -19,7 +19,17 @@ struct processNode {
     uint32_t turnaroundTime;            // The finishingTime - A
     uint32_t IOTime;                    // Time in blocked state
     uint32_t waitingTime;               // Time in ready state
+
+    uint32_t IOBurst;                   // The amount of IO time after a CPU burst
+    uint32_t CPUBurst;                  // The amount of CPU time before a block is hit
     struct processNode *next;           // Pointer to the next node in the list
+    struct processNode *nextInPreparation;           // Pointer to the next node in the list
+    struct processNode *nextInReady;           // Pointer to the next node in the list
+    struct processNode *nextInReadySuspended;           // Pointer to the next node in the list
+    struct processNode *nextInRunning;           // Pointer to the next node in the list
+    struct processNode *nextInBlocked;           // Pointer to the next node in the list
+    struct processNode *nextInBlockedSuspended;           // Pointer to the next node in the list
+    struct processNode *nextInFinished;           // Pointer to the next node in the list
 };
 
 // Global constants
@@ -27,13 +37,24 @@ bool IS_VERBOSE_MODE = false;           // Flags whether the output should be de
 bool IS_RANDOM_MODE = false;            // Flags whether the output should include the random digit or not
 uint32_t CURRENT_CYCLE = 0;             // The current cycle that each process is on
 bool IS_PRINTED = false;                // Flags whether the output has already been printed yet
+uint32_t TOTAL_CREATED_PROCESSES = 0;
 
 const char* RANDOM_NUMBER_FILE_NAME= "random-numbers";
+
+// Backup process queue head & tail pointers
+struct processNode* backupHead = NULL;
+struct processNode* backupTail = NULL;
+uint32_t backupProcessQueueSize = 0;
 
 // Original process queue head & tail pointers
 struct processNode* head = NULL;
 struct processNode* tail = NULL;
 uint32_t processQueueSize = 0;
+
+// preparationQueue head & tail pointers
+struct processNode* preparationHead = NULL;
+struct processNode* preparationTail = NULL;
+uint32_t preparationProcessQueueSize = 0;
 
 // readyQueue head & tail pointers
 struct processNode* readyHead = NULL;
@@ -60,24 +81,34 @@ struct processNode* blockedSuspendedHead = NULL;
 struct processNode* blockedSuspendedTail = NULL;
 uint32_t blockedSuspendedProcessQueueSize = 0;
 
-
 // finishedQueue head & tail pointers
 struct processNode* finishedHead = NULL;
 struct processNode* finishedTail = NULL;
 uint32_t finishedProcessQueueSize = 0;
 
 /**
+ * HELPER FUNCTION: Prints out all queue sizes
+ */
+void printAllQueueSizes()
+{
+    printf("The size of the original process queue is: %i\n", processQueueSize);
+    printf("The size of the ready process queue is: %i\n", readyProcessQueueSize);
+    printf("The size of the ready suspended process queue is: %i\n", readySuspendedProcessQueueSize);
+    printf("The size of the running process queue is: %i\n", runningProcessQueueSize);
+    printf("The size of the blocked process queue is: %i\n", blockedProcessQueueSize);
+    printf("The size of the blocked suspended process queue is: %i\n", blockedSuspendedProcessQueueSize);
+    printf("The size of the finished process queue is: %i\n", finishedProcessQueueSize);
+} // End of the printAllQueueSizes helper function
+
+/**
  * Reads a random non-negative integer X from a file named random-numbers (in the current directory)
+ * NOTE: Only works if the integer values in random-number are less than 20 in length
  * @return The value 1 + (X % U)
  */
 uint32_t randomOS(uint32_t upperBound, FILE* randomNumberFile)
 {
-    char line[15];
-    char* anyRemainderString;
-    uint32_t unsignedRandomInteger;
-
-    fgets(line, 15, randomNumberFile);
-    unsignedRandomInteger = (uint32_t) strtoul(line, &anyRemainderString, 8);
+    char str[20];
+    uint32_t unsignedRandomInteger = (uint32_t) atoi(fgets(str, 20, randomNumberFile));
     uint32_t returnValue = 1 + (unsignedRandomInteger % upperBound);
     return returnValue;
 } // End of the randomOS function
@@ -128,6 +159,101 @@ struct processNode* dequeueProcess()
 
 /************************ END OF ORIGINAL PROCESS QUEUE HELPER FUNCTIONS *************************************/
 
+/************************ START OF BACKUP PROCESS QUEUE HELPER FUNCTIONS *************************************/
+
+/**
+ * A queue insertion function
+ */
+void enqueueBackupProcess(struct processNode *newNode)
+{
+    // Identical to the insertBack() of a linked list
+    if ((backupHead == NULL) || (backupTail == NULL))
+    {
+        // Queue is empty, simply point backupHead and backupTail to the newNode
+        backupHead = newNode;
+        backupTail = newNode;
+    }
+    else
+    {
+        // Queue is not empty, gets the back and inserts behind the backupTail
+        backupTail->next = newNode;
+        backupTail = newNode;
+    }
+    ++backupProcessQueueSize;
+} // End of the process enqueue function
+
+/**
+ * Dequeues the process from the queue, and returns the removed node
+ */
+struct processNode* dequeueBackupProcess()
+{
+    // Identical to removeFront() of a linked list
+    if (backupHead == NULL)
+    {
+        // Queue is empty, returns null
+        return NULL;
+    }
+    else
+    {
+        // Queue is not empty, retains the old backupHead for the return value, and sets the new backupHead
+        struct processNode* oldBackupHead = backupHead;
+        backupHead = backupHead->next;
+        --backupProcessQueueSize;
+        return oldBackupHead;
+    }
+} // End of the process dequeue function
+
+/************************ END OF BACKUP PROCESS QUEUE HELPER FUNCTIONS *************************************/
+
+/************************ START OF PREPARATION QUEUE HELPER FUNCTIONS *************************************/
+
+/**
+* A queue insertion function
+*/
+void enqueuePreparationProcess(struct processNode *newNode)
+{
+    // Identical to the insertBack() of a linked list
+    if ((preparationHead == NULL) || (preparationTail == NULL))
+    {
+        // Queue is empty, simply point head and tail to the newNode
+        preparationHead = newNode;
+        preparationTail = newNode;
+    }
+    else
+    {
+        // Queue is not empty, gets the back and inserts behind the tail
+        preparationTail->nextInPreparation = newNode;
+        preparationTail = newNode;
+    }
+    ++preparationProcessQueueSize;
+} // End of the preparation process enqueue function
+
+/**
+ * Dequeues the process from the queue, and returns the removed node
+ */
+struct processNode* dequeuePreparationProcess()
+{
+    // Identical to removeFront() of a linked list
+    if (preparationHead == NULL)
+    {
+        // Queue is empty, returns null
+        return NULL;
+    }
+    else
+    {
+        // Queue is not empty, retains the old head for the return value, and sets the new head
+        struct processNode* oldHead = preparationHead;
+        preparationHead = preparationHead->nextInPreparation;
+
+        if (preparationHead == NULL)
+            preparationTail = NULL;
+        --preparationProcessQueueSize;
+        return oldHead;
+    }
+} // End of the preparation process dequeue function
+
+/************************ END OF PREPARATION QUEUE HELPER FUNCTIONS *************************************/
+
 /************************ START OF READY QUEUE HELPER FUNCTIONS *************************************/
 
 /**
@@ -136,7 +262,7 @@ struct processNode* dequeueProcess()
 void enqueueReadyProcess(struct processNode *newNode)
 {
     // Identical to the insertBack() of a linked list
-    if ((readyHead == NULL) || (readyTail == NULL))
+    if (readyProcessQueueSize == 0)
     {
         // Queue is empty, simply point head and tail to the newNode
         readyHead = newNode;
@@ -145,8 +271,9 @@ void enqueueReadyProcess(struct processNode *newNode)
     else
     {
         // Queue is not empty, gets the back and inserts behind the tail
-        readyTail->next = newNode;
-        readyTail = newNode;
+        newNode->nextInReady = NULL;
+        readyTail->nextInReady = newNode;
+        readyTail = readyTail->nextInReady;
     }
     ++readyProcessQueueSize;
 } // End of the ready process enqueue function
@@ -157,7 +284,7 @@ void enqueueReadyProcess(struct processNode *newNode)
 struct processNode* dequeueReadyProcess()
 {
     // Identical to removeFront() of a linked list
-    if (readyHead == NULL)
+    if (readyProcessQueueSize == 0)
     {
         // Queue is empty, returns null
         return NULL;
@@ -166,11 +293,15 @@ struct processNode* dequeueReadyProcess()
     {
         // Queue is not empty, retains the old head for the return value, and sets the new head
         struct processNode* oldHead = readyHead;
-        readyHead = readyHead->next;
-
-        if (readyHead == NULL)
-            readyTail = NULL;
+        readyHead = readyHead->nextInReady;
         --readyProcessQueueSize;
+
+        if (readyProcessQueueSize == 0)
+        {
+            // Queue is now empty, with both head & tail set to NULL
+            readyHead = NULL;
+            readyTail = NULL;
+        }
         return oldHead;
     }
 } // End of the ready process dequeue function
@@ -194,7 +325,7 @@ void enqueueReadySuspendedProcess(struct processNode *newNode)
     else
     {
         // Queue is not empty, gets the back and inserts behind the tail
-        readySuspendedTail->next = newNode;
+        readySuspendedTail->nextInReadySuspended = newNode;
         readySuspendedTail = newNode;
     }
     ++readySuspendedProcessQueueSize;
@@ -215,7 +346,7 @@ struct processNode* dequeueReadySuspendedProcess()
     {
         // Queue is not empty, retains the old head for the return value, and sets the new head
         struct processNode* oldHead = readySuspendedHead;
-        readySuspendedHead = readySuspendedHead->next;
+        readySuspendedHead = readySuspendedHead->nextInReadySuspended;
 
         if (readySuspendedHead == NULL)
             readySuspendedTail = NULL;
@@ -233,7 +364,7 @@ struct processNode* dequeueReadySuspendedProcess()
 */
 void enqueueRunningProcess(struct processNode *newNode)
 {
-    printf("Got to start of enqueue running\n");
+
     // Identical to the insertBack() of a linked list
     if ((runningHead == NULL) || (runningTail == NULL))
     {
@@ -244,12 +375,10 @@ void enqueueRunningProcess(struct processNode *newNode)
     else
     {
         // Queue is not empty, gets the back and inserts behind the tail
-        runningTail->next = newNode;
+        runningTail->nextInRunning = newNode;
         runningTail = newNode;
     }
     ++runningProcessQueueSize;
-    printf("Got to end of enqueue running\n");
-    printf("At this moment, the size of the running process is: %i\n", runningProcessQueueSize);
 } // End of the running process enqueue function
 
 /**
@@ -267,7 +396,7 @@ struct processNode* dequeueRunningProcess()
     {
         // Queue is not empty, retains the old head for the return value, and sets the new head
         struct processNode* oldHead = runningHead;
-        runningHead = runningHead->next;
+        runningHead = runningHead->nextInRunning;
 
         if (runningHead == NULL)
             runningTail = NULL;
@@ -295,7 +424,7 @@ void enqueueBlockedProcess(struct processNode *newNode)
     else
     {
         // Queue is not empty, gets the back and inserts behind the tail
-        blockedTail->next = newNode;
+        blockedTail->nextInBlocked = newNode;
         blockedTail = newNode;
     }
     ++blockedProcessQueueSize;
@@ -317,12 +446,10 @@ struct processNode* dequeueBlockedProcess()
     {
         // Queue is not empty, retains the old head for the return value, and sets the new head
         struct processNode* oldHead = blockedHead;
-        blockedHead = blockedHead->next;
+        blockedHead = blockedHead->nextInBlocked;
         if (blockedHead == NULL)
             blockedTail = NULL;
         --blockedProcessQueueSize;
-        printf("Attempting to dequeue from the blocked process pool\n");
-        printf("At this moment, the blockedQueueSize is: %i\n", blockedProcessQueueSize);
         return oldHead;
     }
 } // End of the blocked process dequeue function
@@ -346,7 +473,7 @@ void enqueueBlockedSuspendedProcess(struct processNode *newNode)
     else
     {
         // Queue is not empty, gets the back and inserts behind the tail
-        blockedSuspendedTail->next = newNode;
+        blockedSuspendedTail->nextInBlockedSuspended = newNode;
         blockedSuspendedTail = newNode;
     }
     ++blockedSuspendedProcessQueueSize;
@@ -368,12 +495,10 @@ struct processNode* dequeueBlockedSuspendedProcess()
     {
         // Queue is not empty, retains the old head for the return value, and sets the new head
         struct processNode* oldHead = blockedSuspendedHead;
-        blockedSuspendedHead = blockedSuspendedHead->next;
+        blockedSuspendedHead = blockedSuspendedHead->nextInBlockedSuspended;
         if (blockedSuspendedHead == NULL)
             blockedSuspendedTail = NULL;
         --blockedSuspendedProcessQueueSize;
-        printf("Attempting to dequeue from the blockedSuspended process pool\n");
-        printf("At this moment, the blockedSuspendedQueueSize is: %i\n", blockedSuspendedProcessQueueSize);
         return oldHead;
     }
 } // End of the blockedSuspended process dequeue function
@@ -397,7 +522,7 @@ void enqueueFinishedProcess(struct processNode *newNode)
     else
     {
         // Queue is not empty, gets the back and inserts behind the tail
-        finishedTail->next = newNode;
+        finishedTail->nextInFinished = newNode;
         finishedTail = newNode;
     }
     ++finishedProcessQueueSize;
@@ -418,7 +543,7 @@ struct processNode* dequeueFinishedProcess()
     {
         // Queue is not empty, retains the old head for the return value, and sets the new head
         struct processNode* oldHead = finishedHead;
-        finishedHead = finishedHead->next;
+        finishedHead = finishedHead->nextInFinished;
 
         if (finishedHead == NULL)
             finishedTail = NULL;
@@ -431,43 +556,79 @@ struct processNode* dequeueFinishedProcess()
 
 /************************ START OF RUNNING PROGRAM FUNCTIONS *************************************/
 
-void DoBlockedProcesses()
+void DoBlockedProcesses(uint32_t randomNumber)
 {
-    printf("Got to the start of DoBlockedProcesses\n");
+    printf("Got to blocked 0\n");
+    // Does the blocked suspended portion first
     if (blockedSuspendedProcessQueueSize != 0)
     {
-        // Does the blocked suspended portion first
+        // Unblocks the process to the ready suspended queue
         struct processNode* unBlockedNode = dequeueBlockedSuspendedProcess();
-        printf("Unblocking process from blocked suspended to ready suspended\n");
         unBlockedNode->status = 1;
         enqueueReadySuspendedProcess(unBlockedNode);
     }
+
     if (blockedProcessQueueSize != 0)
     {
-        // Does the blocked portion next
-        struct processNode* unBlockedNode = dequeueBlockedProcess();
-        printf("Suspending process from blocked to blocked suspended\n");
-        enqueueBlockedSuspendedProcess(unBlockedNode);
-//
-//        if (runningProcessQueueSize > 0)
-//        {
-//            printf("A process is being \n");
-//            // A process is being run, adds to the ready queue
-//            unBlockedNode->waitingTime += 1;
-//            unBlockedNode->status = 1;
-//            enqueueReadyProcess(unBlockedNode);
-//        }
-//        else
-//        {
-//            printf("Got to blocked 3\n");
-//            // No process is being run, can be moved directly to running
-//            unBlockedNode->turnaroundTime += 1;
-//            unBlockedNode->status = 2;
-//            enqueueRunningProcess(unBlockedNode);
-//            printf("At this point the node is in running mode\n");
-//        }
-    }
+        struct processNode* currentNode = blockedHead;
+        while (currentNode != NULL)
+        {
+            // Iterates through the blocked process queue
+            if (currentNode->IOBurst == 0)
+            {
+                // IOBurst time is 0, moves to ready
+                currentNode->CPUBurst = 1 + (randomNumber % currentNode->B);
+                currentNode->status = 1;
 
+                printf("Initial blocked queue is:%i\n", blockedProcessQueueSize); //TODO remove after
+                // Removes this process from the blocked list to the ready queue
+                if (currentNode == blockedHead)
+                {
+                    printf("Removing from blocked to ready from the front:%i\n", blockedProcessQueueSize); //TODO remove after
+                    // Removes from the front, simply dequeues
+                    struct processNode* unBlockedProcess = dequeueBlockedProcess();
+                    enqueueReadyProcess(unBlockedProcess);
+                    printf("Removed from blocked to ready from the front:%i\n", blockedProcessQueueSize); //TODO remove after
+                }
+                else if (currentNode == blockedTail)
+                {
+                    // Removes from the back
+                    printf("Removing from blocked to ready from the front:%i\n", blockedProcessQueueSize); //TODO remove after
+                    struct processNode* currentBlockedIterationProcess = blockedHead;
+                    while (currentBlockedIterationProcess->nextInBlocked->nextInBlocked != NULL)
+                    {currentBlockedIterationProcess = currentBlockedIterationProcess->nextInBlocked;}
+
+                    blockedTail = currentBlockedIterationProcess;
+
+                    struct processNode* nodeToBeAddedToReady = currentBlockedIterationProcess->nextInBlocked;
+                    currentBlockedIterationProcess->nextInBlocked = NULL;
+                    --blockedProcessQueueSize;
+
+                    enqueueReadyProcess(nodeToBeAddedToReady);
+                    printf("Removed from blocked to ready from the front:%i\n", blockedProcessQueueSize); //TODO remove after
+                }
+                else
+                {
+                    printf("Removing from blocked to ready from the front:%i\n", blockedProcessQueueSize); //TODO remove after
+                    // Removes from the middle
+                    struct processNode* currentBlockedIterationProcess = blockedHead;
+
+                    // Iterates until right before the middle block
+                    while (currentBlockedIterationProcess->nextInBlocked != currentNode)
+                    {currentBlockedIterationProcess = currentBlockedIterationProcess->nextInBlocked;}
+
+                    struct processNode* nodeToBeAddedToReady = currentBlockedIterationProcess->nextInBlocked;
+                    currentBlockedIterationProcess->nextInBlocked =
+                            currentBlockedIterationProcess->nextInBlocked->nextInBlocked;
+                    --blockedProcessQueueSize;
+                    enqueueReadyProcess(nodeToBeAddedToReady);
+                    printf("Removed from blocked to ready from the front:%i\n", blockedProcessQueueSize); //TODO remove after
+                }
+            } // End of dealing with removing any processes that need to be moved to ready
+            currentNode = currentNode->nextInBlocked;
+        }
+    }
+    printf("Got to blocked 2\n");
 } // End of the doBlockedProcess function
 
 void DoRunningProcesses()
@@ -483,20 +644,11 @@ void DoRunningProcesses()
             processedNode->finishingTime = CURRENT_CYCLE;
             enqueueFinishedProcess(processedNode);
         }
-        else if (processedNode->C > processedNode->turnaroundTime)
+        else
         {
             // Process has not completed running, moves to the blocked queue
             processedNode->status = 3;
-            processedNode->IOTime += 1;
             enqueueBlockedProcess(processedNode);
-        }
-        else
-        {
-            // Process has been preempted, moves back to the ready queue
-            //TODO Will need to actually figure out the preemption code for this
-            processedNode->status = 1;
-            processedNode->waitingTime += 1;
-            enqueueReadyProcess(processedNode);
         }
     }
     else
@@ -507,109 +659,191 @@ void DoRunningProcesses()
 
 void createProcesses()
 {
-    int i = 0;
+    // Iterates through the original list, finding those that begin at this cycle time
+    uint32_t i;
     struct processNode* currentNode = head;
-    for (; i < processQueueSize; ++i)
+    for (i = 0; i < processQueueSize; ++i)
     {
+        // For any that are found to start now, adds it to the prepared pool
         if (currentNode->A == CURRENT_CYCLE)
-        {
-            // It is the current cycle begin time for this process, moves this to running unless there is something run
-            if (runningProcessQueueSize == 0)
-            {
-                // No other processes running, moves to running queue
-                currentNode->turnaroundTime += 1;
-                currentNode->status = 2;
-                enqueueRunningProcess(currentNode);
-            }
-            else
-            {
-                // Process is running, waits in the ready queue
-                currentNode->waitingTime += 1;
-                currentNode->status = 1;
-                enqueueReadyProcess(currentNode);
-            }
-        }
+            enqueuePreparationProcess(currentNode);
+        currentNode = currentNode->next;
+    }
+
+    // At this point, we have a queue of processes that all begin at the same time, in order of pid (lowest first)
+    while (preparationProcessQueueSize != 0)
+    {
+        struct processNode* preparedProcess = dequeuePreparationProcess();
+        ++TOTAL_CREATED_PROCESSES;
+        preparedProcess->status = 1;
+        enqueueReadyProcess(preparedProcess);
     }
 } // End of the createProcess function
 
 void DoReadyProcesses()
 {
+    // Deals with the ready suspended queue first
+    if (readySuspendedProcessQueueSize != 0)
+    {
+        // Resumes the ready suspended process back to the ready queue
+        struct processNode* readiedSuspendedNode = dequeueReadySuspendedProcess();
+        enqueueReadyProcess(readiedSuspendedNode);
+    }
+
+    // Deals with the ready queue second
     if (readyProcessQueueSize != 0)
     {
-        // Ready cycle is ready to move into the running queue
         struct processNode* readiedNode = dequeueReadyProcess();
-        readiedNode->turnaroundTime += 1;
-        enqueueRunningProcess(readiedNode);
+        if ((runningProcessQueueSize == 0) && (readiedNode->CPUBurst > 0))
+        {
+            // There are no running processes, runs the process, and adds it to the running pool
+            readiedNode->status = 2;
+            enqueueRunningProcess(readiedNode);
+        }
+//        else
+//        {
+//            printf("Got to 2\n");
+//            // There are running processes, suspends the ready process to the ready suspended pool
+//            enqueueReadySuspendedProcess(readiedNode);
+//        }
     }
+
 } // End of the doReadyProcess function
+
+void incrementTimers(uint32_t randomNumber)
+{
+    int i;
+    struct processNode* currentNode = readyHead;
+    // Increments any processes in the ready pool (increases wait time by 1)
+    for (i = 0; i < readyProcessQueueSize; ++i)
+    {
+        currentNode->waitingTime += 1;
+        currentNode = currentNode->nextInReady;
+    }
+    // Increments any processes in the blocked pool (increases IO time by 1)
+    currentNode = blockedHead;
+    for (i = 0; i < blockedProcessQueueSize; ++i)
+    {
+        currentNode->IOTime += 1;
+        currentNode->IOBurst -= 1;
+        currentNode = currentNode->nextInBlocked;
+    }
+
+    // Increments any processes in the running pool (increases turnaround time by 1)
+    currentNode = runningHead;
+    for (i = 0; i < runningProcessQueueSize; ++i)
+    {
+        currentNode->IOBurst = currentNode->M * currentNode->CPUBurst;
+        currentNode->turnaroundTime += 1;
+        currentNode->CPUBurst -= 1;
+        currentNode = currentNode->nextInRunning;
+    }
+} // End of the increment timers function
 
 /************************ END OF RUNNING PROGRAM FUNCTIONS *************************************/
 
 /********************************** START OF THE FCFS SPECIFIC FUNCTIONS **********************************/
 
 /**
- * TODO finish
+ * Runs the First Come First Serve Scheduler
  */
-void runFCFS()
+void runFCFS(FILE* randomNumberFile, uint8_t passNumber)
 {
-    if (IS_VERBOSE_MODE)
+//    if (CURRENT_CYCLE == 20) //TODO remove after
+//    {
+//        printf("Exiting due to retardedness\n"); //TODO remove after
+//        exit(1);
+//    }
+    char str[20];
+    uint32_t unsignedRandomInteger;
+
+    if ((IS_VERBOSE_MODE == true) && (IS_PRINTED == false)) // TODO change from false to true to hide the first round
     {
+//        printf("The following shows the processes added here 2:\n"); //TODO remove after testing
+//        struct processNode* new = head;
+//        int j;
+//        for (j = 0; j < processQueueSize; ++j)
+//        {
+//////            printf("For process: %i, the current A value is: %i\n", new->processID, new->A);
+//////            printf("For process: %i, the current B value is: %i\n", new->processID, new->B);
+//////            printf("For process: %i, the current C value is: %i\n", new->processID, new->C);
+//////            printf("For process: %i, the current M value is: %i\n", new->processID, new->M);
+//////            printf("For process: %i, the current turnaround time value is: %i\n", new->processID, new->turnaroundTime);
+////            printf("For process: %i, the current status value is: ************%i*************\n", new->processID, new->status);
+////            printf("For process: %i, the current IOBurst value is: %i\n", new->processID, new->IOBurst);
+////            printf("For process: %i, the current CPUBurst value is: %i\n", new->processID, new->CPUBurst);
+//////            printf("For process: %i, the current waiting in ready time is: %i\n", new->processID, new->waitingTime);
+////            new = new->next;
+//        }
+
+//        printf("The ready queue size is: %i\n", readyProcessQueueSize);
+//        if (readyHead == NULL)
+//            printf("The ready head is null at cycle: %i\n", CURRENT_CYCLE);
+//        if (readyTail == NULL)
+//            printf("The ready tail is null at cycle: %i\n", CURRENT_CYCLE);
+        //printAllQueueSizes(); //TODO remove after
+
+        printf("Before cycle\t%i:\t", CURRENT_CYCLE);
         int i = 0;
         struct processNode* currentNode = head;
-        if (IS_PRINTED == false)
-        {
-            IS_PRINTED = true;
 
 
-        }
         for (; i < processQueueSize; ++i)
         {
-            printf("The size of the originalQueue is: %i\n", processQueueSize);
-            printf("The size of the readyQueue is: %i\n", readyProcessQueueSize);
-            printf("The size of the runningQueue is: %i\n", runningProcessQueueSize);
-            printf("The size of the blockedQueue is: %i\n", blockedProcessQueueSize);
-            printf("The size of the finishedQueue is: %i\n", finishedProcessQueueSize);
-            if (currentNode == NULL)
+            //printf("The current process %i's status is: %i\n", i, currentNode->status); //TODO remove after
+            switch (currentNode->status)
             {
-                printf("well fuck\n");
-            }
-            else
-            {
-                printf("Before cycle\t%i:\t", CURRENT_CYCLE);
-                switch (currentNode->status)
-                {
-                    case 0:
-                        // Node has not started
-                        printf("unstarted\t\n");
-                        break;
-                    case 1:
-                        // Node is ready
-                        printf("ready\t\n");
-                        break;
-                    case 2:
-                        // Node is running
-                        printf("running\t\n");
-                        break;
-                    case 3:
-                        // Node is I/O blocked
-                        printf("blocked\t\n");
-                        break;
-                    case 4:
-                        // Node is terminated
-                        printf("terminated\t\n");
-                        break;
-                    default:
-                        // Invalid node status, exiting now
-                        fprintf(stderr, "Error: Invalid process status code, exiting now!\n");
-                        exit(1);
-                }
-            }
-        }
-    }
-    DoBlockedProcesses();
+                case 0:
+                    // Node has not started
+                    printf("unstarted \t0\t");
+                    break;
+                case 1:
+                    // Node is ready
+                    printf("ready   \t0\t");
+                    break;
+                case 2:
+                    // Node is running
+                    printf("running \t1\t");
+                    break;
+                case 3:
+                    // Node is I/O blocked
+                    printf("blocked \t1\t");
+                    break;
+                case 4:
+                    // Node is terminated
+                    printf("terminated \t0\t");
+                    break;
+                default:
+                    // Invalid node status, exiting now
+                    fprintf(stderr, "Error: Invalid process status code, exiting now!\n");
+                    exit(1);
+            } // End of the switch statement
+            currentNode = currentNode->next;
+        } // End of the per line for loop
+        printf("\n");
+    } // End of the printed output
+
+    unsignedRandomInteger = (uint32_t) atoi(fgets(str, 20, randomNumberFile));
+    if ((IS_RANDOM_MODE) && (passNumber == 2))
+        printf("Find burst when choosing ready process to run %i\n", unsignedRandomInteger);
+
+    printf("Got to 1\n");
+    DoBlockedProcesses(unsignedRandomInteger);
+    printf("Got to 2\n");
     DoRunningProcesses();
-    createProcesses();
+    printf("Got to 3\n");
+
+    // Checks whether the processes are all created, so it can skip creation again
+    if (TOTAL_CREATED_PROCESSES != processQueueSize)
+    {
+        // Not all processes created, goes into creation loop
+        createProcesses();
+    }
+
+    printf("Got to 4\n");
     DoReadyProcesses();
+    printf("Got to 5\n");
+    incrementTimers(unsignedRandomInteger);
     ++CURRENT_CYCLE;
 } // End of the runFCFS function
 
@@ -696,6 +930,79 @@ void printProcessSpecifics(uint8_t schedulerAlgorithm)
     }
 } // End of the print process specifics function
 
+void backup(FILE* randomNumberFile)
+{
+    // Copies all values from the original queue to the backup queue
+    uint32_t i;
+    struct processNode* currentOriginalNode = head;
+    for (i = 0; i < processQueueSize; ++i)
+    {
+        struct processNode* newBackupNode = (struct processNode*) malloc(sizeof(struct processNode));
+        newBackupNode->A = currentOriginalNode->A;
+        newBackupNode->B = currentOriginalNode->B;
+        newBackupNode->C = currentOriginalNode->C;
+        newBackupNode->M = currentOriginalNode->M;
+        newBackupNode->processID = currentOriginalNode->processID;
+        newBackupNode->next = NULL;
+        newBackupNode->finishingTime = -1;
+        newBackupNode->turnaroundTime = 0;
+        newBackupNode->IOTime = 0;
+        newBackupNode->CPUBurst = randomOS(newBackupNode->B, randomNumberFile);
+        newBackupNode->IOBurst = newBackupNode->M * newBackupNode->CPUBurst;
+        newBackupNode->waitingTime = 0;
+        newBackupNode->status = 0;
+        newBackupNode->nextInRunning = currentOriginalNode->nextInRunning;
+        newBackupNode->nextInBlocked = currentOriginalNode->nextInBlocked;
+        newBackupNode->nextInPreparation = currentOriginalNode->nextInPreparation;
+        newBackupNode->nextInReady = currentOriginalNode->nextInReady;
+        newBackupNode->nextInFinished = currentOriginalNode->nextInFinished;
+        newBackupNode->nextInBlockedSuspended = currentOriginalNode->nextInBlockedSuspended;
+        newBackupNode->nextInReadySuspended = currentOriginalNode->nextInReadySuspended;
+        enqueueBackupProcess(newBackupNode);
+        currentOriginalNode = currentOriginalNode->next;
+    }
+} // End of the backup function
+
+void restoreFromBackup()
+{
+    // Deletes everything from the original queue and resets counter
+    while (processQueueSize != 0)
+    {
+        struct processNode* currentNode = dequeueProcess();
+        free(currentNode);
+    }
+
+    // Restores everything using the backup queue
+    int i;
+    struct processNode* currentBackupNode = backupHead;
+    for (i = 0; i < backupProcessQueueSize; ++i)
+    {
+        struct processNode* newNode = (struct processNode*) malloc(sizeof(struct processNode));
+        newNode->A = currentBackupNode->A;
+        newNode->B = currentBackupNode->B;
+        newNode->C = currentBackupNode->C;
+        newNode->M = currentBackupNode->M;
+        newNode->processID = currentBackupNode->processID;
+        newNode->next = NULL;
+        newNode->finishingTime = -1;
+        newNode->turnaroundTime = 0;
+        newNode->CPUBurst = currentBackupNode->CPUBurst;
+        newNode->IOBurst = currentBackupNode->IOBurst;
+        newNode->IOTime = 0;
+        newNode->waitingTime = 0;
+        newNode->status = 0;
+        newNode->nextInRunning = NULL;
+        newNode->nextInBlocked = NULL;
+        newNode->nextInPreparation = NULL;
+        newNode->nextInReady = NULL;
+        newNode->nextInFinished = NULL;
+        newNode->nextInBlockedSuspended = NULL;
+        newNode->nextInReadySuspended = NULL;
+        enqueueProcess(newNode);
+        currentBackupNode = currentBackupNode->next;
+    }
+} // End of the restore from backup
+
 void printSummaryData()
 {
     //TODO finish
@@ -704,60 +1011,92 @@ void printSummaryData()
 /**
  * Resets everything so the other schedulers can be run after
  */
-void resetFinishedQueue()
+void resetAllQueues()
 {
     CURRENT_CYCLE = 0;
+    TOTAL_CREATED_PROCESSES = 0;
 
-    // Gets rid of everything in the finished queue
-    uint32_t i;
-    for (i = 0; i < finishedProcessQueueSize; ++i)
-    {
-        struct processNode* currentNode = dequeueFinishedProcess();
-        free(currentNode);
-    }
+    // readyQueue head & tail pointers
+    readyHead = NULL;
+    readyTail = NULL;
+    readyProcessQueueSize = 0;
+
+    // readySuspendedQueue head & tail pointers
+    readySuspendedHead = NULL;
+    readySuspendedTail = NULL;
+    readySuspendedProcessQueueSize = 0;
+
+    // runningQueue head & tail pointers
+    runningHead = NULL;
+    runningTail = NULL;
+    runningProcessQueueSize = 0;
+
+    // blockedQueue head & tail pointers
+    blockedHead = NULL;
+    blockedTail = NULL;
+    blockedProcessQueueSize = 0;
+
+    // blockedSuspendedQueue head & tail pointers
+    blockedSuspendedHead = NULL;
+    blockedSuspendedTail = NULL;
+    blockedSuspendedProcessQueueSize = 0;
+
+    // finishedQueue head & tail pointers
+    finishedHead = NULL;
+    finishedTail = NULL;
+    finishedProcessQueueSize = 0;
+
+    // Fixes the original process queue
+    restoreFromBackup();
 } // End of the scheduler reset function
 
-void freeAllQueues()
+void freeAll()
 {
-    // Gets rid of everything in the finished process queue
-    uint32_t i;
-    for (i = 0; i < finishedProcessQueueSize; ++i)
-    {
-        struct processNode* currentNode = dequeueFinishedProcess();
-        free(currentNode);
-    }
-
-    // Gets rid of everything in the ready process queue
-    for (i = 0; i < readyProcessQueueSize; ++i)
-    {
-        struct processNode* currentNode = dequeueReadyProcess();
-        free(currentNode);
-    }
+    resetAllQueues();
 
     // Gets rid of everything in the original process queue
-    for (i = 0; i < processQueueSize; ++i)
+    uint32_t i;
+    while (processQueueSize != 0)
     {
         struct processNode* currentNode = dequeueProcess();
         free(currentNode);
     }
-} // End of the free all queus function
+
+    // Gets rid of everything from the backup
+    while (backupProcessQueueSize != 0)
+    {
+        struct processNode* currentNode = dequeueBackupProcess();
+        free(currentNode);
+    }
+} // End of the free all queues function
 
 /********************* END OF GLOBAL OUTPUT FUNCTIONS *********************************************************/
 
 /******************* START OF THE OUTPUT WRAPPER FOR EACH SCHEDULING ALGORITHM *********************************/
 
-void outputFCFS()
+void outputFCFS(FILE* randomNumberFile)
 {
     printStart();
+    // Runs this the first time in order to have the final output be available
+    randomNumberFile = fopen(RANDOM_NUMBER_FILE_NAME, "r");
+    uint8_t passNumber = 1;
+    while (processQueueSize != finishedProcessQueueSize)
+        runFCFS(randomNumberFile, passNumber);
+    fclose(randomNumberFile);
+
     printFinal();
+    resetAllQueues();
     printf("\n");
+    IS_PRINTED = true;
+    ++passNumber;
 
     if (IS_VERBOSE_MODE)
         printf("This detailed printout gives the state and remaining burst for each process\n");
+    randomNumberFile = fopen(RANDOM_NUMBER_FILE_NAME, "r");
     while (processQueueSize != finishedProcessQueueSize)
-    {
-        runFCFS();
-    }
+        runFCFS(randomNumberFile, passNumber);
+    fclose(randomNumberFile);
+    IS_PRINTED = false;
 
     printf("The scheduling algorithm used was First Come First Served\n");
     printf("\n");
@@ -765,23 +1104,17 @@ void outputFCFS()
     printSummaryData();
 } // End of the print first come first serve function
 
-void outputRR()
+void outputRR(FILE* randomNumberFile)
 {
-//    printStart(); TODO
-//    printFinal();
 } // End of the print round robin function
 
 
-void outputUniprogrammed()
+void outputUniprogrammed(FILE* randomNumberFile)
 {
-//    printStart(); TODO
-//    printFinal();
 } // End of the print uniprogrammed function
 
-void outputSJF()
+void outputSJF(FILE* randomNumberFile)
 {
-//    printStart(); TODO
-//    printFinal();
 } // End of the print shortest job first function
 
 /******************* END OF THE OUTPUT WRAPPER FOR EACH SCHEDULING ALGORITHM *********************************/
@@ -798,7 +1131,6 @@ int main(int argc, char *argv[])
 
     filePath = argv[setFlags(argc, argv)]; // Sets any global flags from input
     inputFile = fopen(filePath, "r");
-    randomNumberFile = fopen(RANDOM_NUMBER_FILE_NAME, "r");
 
     // [ERROR CHECKING]: INVALID FILENAME
     if (inputFile == NULL) {
@@ -809,6 +1141,8 @@ int main(int argc, char *argv[])
     uint32_t indicator;                                 // Indicator number showing the number of jobs
     uint32_t currentIndicatorCount = 0;                 // The current job that we have read in
     fscanf(inputFile, "%i", &indicator);
+
+    randomNumberFile = fopen(RANDOM_NUMBER_FILE_NAME, "r");
 
     // Reads through the input, and adds processes by ordering
     while (!feof(inputFile))
@@ -823,7 +1157,8 @@ int main(int argc, char *argv[])
 
         struct processNode* newNode = (struct processNode*) malloc(sizeof(struct processNode));
         // Ain't C cool, that you can read in something like this, that scans in the job
-        fscanf(inputFile, "%*c%*c%i %i %i %i%*c", &inputA, &inputB, &inputC, &inputM);
+        fscanf(inputFile, " %*c%i %i %i %i%*c", &inputA, &inputB, &inputC, &inputM);
+
         newNode->A = inputA;
         newNode->B = inputB;
         newNode->C = inputC;
@@ -832,28 +1167,57 @@ int main(int argc, char *argv[])
         newNode->next = NULL;
         newNode->finishingTime = -1;
         newNode->turnaroundTime = 0;
+        newNode->CPUBurst = randomOS(newNode->B, randomNumberFile);
+        newNode->IOBurst = newNode->M * newNode->CPUBurst;
         newNode->IOTime = 0;
         newNode->waitingTime = 0;
         newNode->status = 0;
+
+        newNode->nextInRunning = NULL;
+        newNode->nextInBlocked = NULL;
+        newNode->nextInPreparation = NULL;
+        newNode->nextInReady = NULL;
+        newNode->nextInFinished = NULL;
+        newNode->nextInBlockedSuspended = NULL;
+        newNode->nextInReadySuspended = NULL;
+
         ++currentIndicatorCount;
 
         // At this point, there is a new process created with the time, so now it needs to be inserted into the queue
         enqueueProcess(newNode);
     } // End of file input reading
     fclose(inputFile);
-
-    outputFCFS();
-    resetFinishedQueue(); // Resets the cycle time to start the new process scheduler again
-
-    outputRR();
-    resetFinishedQueue(); // Resets the cycle time to start the new process scheduler again
-
-    outputUniprogrammed();
-    resetFinishedQueue(); // Resets the cycle time to start the new process scheduler again
-
-    outputSJF();
-
     fclose(randomNumberFile);
-    freeAllQueues();
+
+    // Backs up the original processes using the backup queue
+    randomNumberFile = fopen(RANDOM_NUMBER_FILE_NAME, "r");
+    backup(randomNumberFile);
+    fclose(randomNumberFile);
+
+    // First Come First Serve Run
+    printf("######################### START OF FIRST COME FIRST SERVE #########################\n");
+    outputFCFS(randomNumberFile);
+    resetAllQueues();       // Resets the cycle time to start the new process scheduler again
+    printf("######################### END OF FCFS #########################\n");
+
+    // Round Robin Run
+    printf("######################### START OF ROUND ROBIN #########################\n");
+    outputRR(randomNumberFile);
+    resetAllQueues();       // Resets the cycle time to start the new process scheduler again
+    printf("######################### END OF ROUND ROBIN #########################\n");
+
+    // Uniprogrammed Run
+    printf("######################### START OF UNIPROGRAMMED #########################\n");
+    outputUniprogrammed(randomNumberFile);
+    resetAllQueues();       // Resets the cycle time to start the new process scheduler again
+    printf("######################### END OF UNIPROGRAMMED #########################\n");
+
+    // Shortest Job First Run
+    printf("######################### START OF SHORTEST JOB FIRST #########################\n");
+    outputSJF(randomNumberFile);
+    printf("######################### END OF SHORTEST JOB FIRST #########################\n");
+
+    freeAll();              // Resets and frees all objects
+
     return EXIT_SUCCESS;
 } // End of the main function
