@@ -37,6 +37,7 @@ struct Process {
 bool IS_VERBOSE_MODE = false;           // Flags whether the output should be detailed or not
 bool IS_RANDOM_MODE = false;            // Flags whether the output should include the random digit or not
 bool IS_PROCESS_RUNNING = false;        // Flags whether any process is currently running
+struct Process* UNIPROGRAMMED_PROCESS = NULL;
 
 uint32_t CURRENT_CYCLE = 0;             // The current cycle that each process is on
 uint32_t TOTAL_CREATED_PROCESSES = 0;   // The total number of processes constructed
@@ -326,6 +327,8 @@ void DoRunningProcesses(struct Process finishedProcessContainer[], uint8_t sched
             runningProcess = NULL;
             IS_PROCESS_RUNNING = false;
             ++TOTAL_FINISHED_PROCESSES;
+            if (schedulerAlgorithm == 2)
+                UNIPROGRAMMED_PROCESS = NULL;
         }
         else if (runningProcess->CPUBurst > 0)
         {
@@ -374,22 +377,38 @@ void createProcesses(struct Process processContainer[])
             // Time for this process to be created, and enqueued to the ready queue
             ++TOTAL_STARTED_PROCESSES;
             processContainer[i].status = 1; // Sets the status to ready
+            if (i == 0)
+                UNIPROGRAMMED_PROCESS = &processContainer[i];
             enqueueReadyProcess(&processContainer[i]);
         }
     }
 } // End of the createProcess function
 
-void DoReadyProcesses(uint8_t schedulerAlgorithm, uint8_t currentPassNumber, FILE* randomFile)
-{
+void DoReadyProcesses(uint8_t schedulerAlgorithm, uint8_t currentPassNumber, FILE* randomFile) {
 //    printf("Got to doReady\n");
     // Deals with the ready suspended queue first
-    if (readySuspendedProcessQueueSize != 0)
-    {
-        // Resumes the ready suspended process back to the ready queue
-        struct Process* readiedSuspendedNode = dequeueReadySuspendedProcess();
-        enqueueReadyProcess(readiedSuspendedNode);
+    if ((readySuspendedProcessQueueSize != 0) && (schedulerAlgorithm == 2)) {
+        if (UNIPROGRAMMED_PROCESS == NULL) {
+            // There is no process running, dequeues a single process and readies it
+            struct Process *resumedProcess = dequeueReadySuspendedProcess();
+            resumedProcess->status = 1;
+            UNIPROGRAMMED_PROCESS = resumedProcess;
+            enqueueReadyProcess(resumedProcess);
+        }
     }
     // End of dealing with the ready suspended queue
+
+    if ((UNIPROGRAMMED_PROCESS != NULL) && (readyProcessQueueSize != 0) && (readyHead != UNIPROGRAMMED_PROCESS))
+    {
+        // There is a process running, so suspends anything to the ready suspended queue
+        uint32_t i = 0;
+        for (; i < readyProcessQueueSize; ++i)
+        {
+            struct Process* suspendedNode = dequeueReadyProcess();
+            suspendedNode->status = 1;
+            enqueueReadySuspendedProcess(suspendedNode);
+        }
+    }
 
     // Deals with the ready queue second
     if (readyProcessQueueSize != 0)
@@ -431,14 +450,27 @@ void DoReadyProcesses(uint8_t schedulerAlgorithm, uint8_t currentPassNumber, FIL
                 runningProcess = readiedNode;
             }
         }
-        else if ((IS_PROCESS_RUNNING == true) && (schedulerAlgorithm == 2))
-        {
-            // [UNIPROGRAMMED] There are running processes, suspends the ready process to the ready suspended pool
-            struct Process* readiedNode = dequeueReadyProcess();
-            enqueueReadySuspendedProcess(readiedNode);
-        }
     }
     // End of dealing with the ready queue
+
+    // For uniprogrammed only
+    if ((schedulerAlgorithm == 2) && (readyProcessQueueSize != 0))
+    {
+        // Things are still in the ready queue
+        uint32_t i = 0;
+        for (; i < readyProcessQueueSize; ++i)
+        {
+            if (IS_PROCESS_RUNNING == true)
+            {
+                // [UNIPROGRAMMED] There are running processes, suspends the ready process to the ready suspended pool
+                struct Process* suspendedNode = dequeueReadyProcess();
+                suspendedNode->status = 1;
+                enqueueReadySuspendedProcess(suspendedNode);
+            }
+        }
+    }
+
+
 //    printf("Got to the end of doReadyProcess\n");
 } // End of the doReadyProcess function
 
@@ -472,7 +504,7 @@ void incrementTimers(struct Process processContainer[], uint8_t schedulerAlgorit
                 }
                 break;
             case 1:
-                // Node is ready (waiting)
+                // Node is ready, or in ready suspended (waiting)
                 ++processContainer[i].currentWaitingTime;
 //                printf("For Process %i, the current waiting time is: %i\n", i, processContainer[i].currentWaitingTime);
                 break;
@@ -623,6 +655,7 @@ void resetAfterRun(struct Process processContainer[])
     TOTAL_FINISHED_PROCESSES = 0;
     TOTAL_NUMBER_OF_CYCLES_SPENT_BLOCKED = 0;
     IS_PROCESS_RUNNING = false;
+    UNIPROGRAMMED_PROCESS = NULL;
 
     // readyQueue head & tail pointers
     readyHead = NULL;
@@ -669,7 +702,7 @@ void resetAfterRun(struct Process processContainer[])
 void simulateScheduler(uint8_t currentPassNumber, struct Process processContainer[],
                         struct Process finishedProcessContainer[], FILE* randomFile, uint8_t algorithmScheduler)
 {
-    //    if (CURRENT_CYCLE == 150) //TODO remove after
+//    if (CURRENT_CYCLE == 20) //TODO remove after
 //    {
 //        printf("Exiting due to retardedness\n"); //TODO remove after
 //        exit(1);
@@ -740,12 +773,13 @@ void firstComeFirstServeWrapper(struct Process processContainer[])
 
     printStart(processContainer);
     uint8_t currentPassNumber = 1;
+    uint8_t algorithmScheduler = 0;
 
     struct Process finishedProcessContainer[TOTAL_CREATED_PROCESSES];
     FILE* randomNumberFile = fopen(RANDOM_NUMBER_FILE_NAME, "r");
     // Runs this the first time in order to have the final output be available
     while (TOTAL_FINISHED_PROCESSES != TOTAL_CREATED_PROCESSES)
-        simulateScheduler(currentPassNumber, processContainer, finishedProcessContainer, randomNumberFile, 0);
+        simulateScheduler(currentPassNumber, processContainer, finishedProcessContainer, randomNumberFile, algorithmScheduler);
 
     fclose(randomNumberFile);
 
@@ -760,7 +794,7 @@ void firstComeFirstServeWrapper(struct Process processContainer[])
 
     randomNumberFile = fopen(RANDOM_NUMBER_FILE_NAME, "r");
     while (TOTAL_FINISHED_PROCESSES != TOTAL_CREATED_PROCESSES)
-        simulateScheduler(currentPassNumber, processContainer, finishedProcessContainer, randomNumberFile, 0);
+        simulateScheduler(currentPassNumber, processContainer, finishedProcessContainer, randomNumberFile, algorithmScheduler);
     fclose(randomNumberFile);
     printf("The scheduling algorithm used was First Come First Served\n");
     printProcessSpecifics(processContainer);
@@ -776,12 +810,13 @@ void roundRobinWrapper(struct Process processContainer[])
 
     printStart(processContainer);
     uint8_t currentPassNumber = 1;
+    uint8_t algorithmScheduler = 1;
 
     struct Process finishedProcessContainer[TOTAL_CREATED_PROCESSES];
     FILE* randomNumberFile = fopen(RANDOM_NUMBER_FILE_NAME, "r");
     // Runs this the first time in order to have the final output be available
     while (TOTAL_FINISHED_PROCESSES != TOTAL_CREATED_PROCESSES)
-        simulateScheduler(currentPassNumber, processContainer, finishedProcessContainer, randomNumberFile, 1);
+        simulateScheduler(currentPassNumber, processContainer, finishedProcessContainer, randomNumberFile, algorithmScheduler);
     fclose(randomNumberFile);
 
     printFinal(finishedProcessContainer);
@@ -795,7 +830,7 @@ void roundRobinWrapper(struct Process processContainer[])
 
     randomNumberFile = fopen(RANDOM_NUMBER_FILE_NAME, "r");
     while (TOTAL_FINISHED_PROCESSES != TOTAL_CREATED_PROCESSES)
-        simulateScheduler(currentPassNumber, processContainer, finishedProcessContainer, randomNumberFile, 1);
+        simulateScheduler(currentPassNumber, processContainer, finishedProcessContainer, randomNumberFile, algorithmScheduler);
     fclose(randomNumberFile);
     printf("The scheduling algorithm used was Round Robin\n");
     printProcessSpecifics(processContainer);
@@ -810,7 +845,33 @@ void uniprogrammedWrapper(struct Process processContainer[])
 {
     printf("######################### START OF UNIPROGRAMMED #########################\n");
 
+    printStart(processContainer);
+    uint8_t currentPassNumber = 1;
+    uint8_t algorithmScheduler = 2;
 
+    struct Process finishedProcessContainer[TOTAL_CREATED_PROCESSES];
+    FILE* randomNumberFile = fopen(RANDOM_NUMBER_FILE_NAME, "r");
+    // Runs this the first time in order to have the final output be available
+    while (TOTAL_FINISHED_PROCESSES != TOTAL_CREATED_PROCESSES)
+        simulateScheduler(currentPassNumber, processContainer, finishedProcessContainer, randomNumberFile, algorithmScheduler);
+    fclose(randomNumberFile);
+
+    printFinal(finishedProcessContainer);
+    resetAfterRun(processContainer);
+    printf("\n");
+
+    ++currentPassNumber;
+
+    if (IS_VERBOSE_MODE)
+        printf("This detailed printout gives the state and remaining burst for each process\n");
+
+    randomNumberFile = fopen(RANDOM_NUMBER_FILE_NAME, "r");
+    while (TOTAL_FINISHED_PROCESSES != TOTAL_CREATED_PROCESSES)
+        simulateScheduler(currentPassNumber, processContainer, finishedProcessContainer, randomNumberFile, algorithmScheduler);
+    fclose(randomNumberFile);
+    printf("The scheduling algorithm used was Uniprogrammed\n");
+    printProcessSpecifics(processContainer);
+    printSummaryData(processContainer);
 
     resetAfterRun(processContainer);        // Resets all values to initial conditions
     printf("######################### END OF UNIPROGRAMMED #########################\n");
@@ -898,7 +959,7 @@ int main(int argc, char *argv[])
     //firstComeFirstServeWrapper(processContainer); //TODO uncomment at the end
 
     // Round Robin Run
-    roundRobinWrapper(processContainer);
+    //roundRobinWrapper(processContainer);
 
     // Uniprogrammed Run
     uniprogrammedWrapper(processContainer);
