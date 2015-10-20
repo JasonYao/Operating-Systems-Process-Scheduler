@@ -23,6 +23,8 @@ struct Process {
     uint32_t IOBurst;                   // The amount of time until the process finishes being blocked
     uint32_t CPUBurst;                  // The CPU availability of the process (has to be > 1 to move to running)
 
+    int32_t quantum;                   // Used for schedulers that utilise pre-emption
+
     bool isFirstTimeRunning;
 
     struct Process* nextInBlockedList;  // A pointer to the next process available in the blocked list
@@ -306,7 +308,7 @@ void DoBlockedProcesses()
 //    printf("Got to the end of doBlocked\n");
 } // End of the doBlockedProcess function
 
-void DoRunningProcesses(struct Process finishedProcessContainer[])
+void DoRunningProcesses(struct Process finishedProcessContainer[], uint8_t schedulerAlgorithm)
 {
 //    printf("Got to doRunning\n");
     // Process finished running, needs to be moved to either finishedQueue, blockedQueue, or pre-empted into readyQueue
@@ -336,6 +338,14 @@ void DoRunningProcesses(struct Process finishedProcessContainer[])
                 runningProcess->IOBurst = runningProcess->M * (runningProcess->CPUBurst + 1); //TODO check if required
                 runningProcess->status = 2; // Shouldn't require this, but switches to ready occur without this statement
             }
+        }
+        else if ((runningProcess->quantum <= 0) && (schedulerAlgorithm == 1))
+        {
+            // Process has not completed running, with no more CPU Burst, and a quantum of 0 while in RR mode
+            runningProcess->status = 1;
+            enqueueReadyProcess(runningProcess);
+            runningProcess = NULL;
+            IS_PROCESS_RUNNING = false;
         }
         else
         {
@@ -410,6 +420,13 @@ void DoReadyProcesses(uint8_t schedulerAlgorithm, uint8_t currentPassNumber, FIL
                 // There are no running processes, runs the process, and adds it to the running pool
                 readiedNode->status = 2;
                 readiedNode->isFirstTimeRunning = true;
+
+                if (schedulerAlgorithm == 1)
+                {
+                    // Scheduler is round robin, sets the quantum
+                    readiedNode->quantum = 2;
+                }
+
                 IS_PROCESS_RUNNING = true;
                 runningProcess = readiedNode;
             }
@@ -425,7 +442,7 @@ void DoReadyProcesses(uint8_t schedulerAlgorithm, uint8_t currentPassNumber, FIL
 //    printf("Got to the end of doReadyProcess\n");
 } // End of the doReadyProcess function
 
-void incrementTimers(struct Process processContainer[])
+void incrementTimers(struct Process processContainer[], uint8_t schedulerAlgorithm)
 {
 //    printf("Got to incrementTimers\n");
     uint32_t i = 0;
@@ -446,11 +463,13 @@ void incrementTimers(struct Process processContainer[])
                 break;
             case 2:
                 // Node is running (CPU time)
-                //currentProcess.IOBurst = currentProcess.M * currentProcess.CPUBurst; //TODO check if required, or if possible to do earlier
                 ++processContainer[i].currentCPUTimeRun;
-//                printf("For Process %i, the current CPUTimeRun is: %i\n", i, processContainer[i].currentCPUTimeRun);
                 --processContainer[i].CPUBurst;
-//                printf("For Process %i, the current CPU Burst is: %i\n", i, processContainer[i].CPUBurst);
+                if (schedulerAlgorithm == 1)
+                {
+                    // Process is utilising RR, and is running, so decrements quantum
+                    --processContainer[i].quantum;
+                }
                 break;
             case 1:
                 // Node is ready (waiting)
@@ -647,17 +666,16 @@ void resetAfterRun(struct Process processContainer[])
 
 /********************* END OF GLOBAL OUTPUT FUNCTIONS *********************************************************/
 
-/* Actual scheduler simulators */
-void simulateFirstComeFirstServe(uint8_t currentPassNumber, struct Process processContainer[],
-                                 struct Process finishedProcessContainer[], FILE* randomFile)
+void simulateScheduler(uint8_t currentPassNumber, struct Process processContainer[],
+                        struct Process finishedProcessContainer[], FILE* randomFile, uint8_t algorithmScheduler)
 {
-//    if (CURRENT_CYCLE == 150) //TODO remove after
+    //    if (CURRENT_CYCLE == 150) //TODO remove after
 //    {
 //        printf("Exiting due to retardedness\n"); //TODO remove after
 //        exit(1);
 //    }
 
-    if ((IS_VERBOSE_MODE) && ((currentPassNumber) % 2 == 0))
+    if ((IS_VERBOSE_MODE) && ((currentPassNumber) % 2 != 0)) //TODO remove ! after testing
     {
         // Prints out the state of each process during the current cycle
         printf("Before cycle\t%i:\t", CURRENT_CYCLE);
@@ -696,20 +714,20 @@ void simulateFirstComeFirstServe(uint8_t currentPassNumber, struct Process proce
     }
 
     DoBlockedProcesses();
-    DoRunningProcesses(finishedProcessContainer);
+    DoRunningProcesses(finishedProcessContainer, algorithmScheduler);
     // Checks whether the processes are all created, so it can skip creation if not required
     if (TOTAL_STARTED_PROCESSES != TOTAL_CREATED_PROCESSES)
     {
         // Not all processes created, goes into creation loop
         createProcesses(processContainer);
     }
-    DoReadyProcesses(0, currentPassNumber, randomFile);
-
-    incrementTimers(processContainer);
+    DoReadyProcesses(algorithmScheduler, currentPassNumber, randomFile);
+    incrementTimers(processContainer, algorithmScheduler);
 
     ++CURRENT_CYCLE;
-} // End of the simulate first come first serve function
+} // End of the simulate round robin function
 
+/****************************** END OF THE SIMULATION FUNCTIONS **************************************/
 
 /******************* START OF THE OUTPUT WRAPPER FOR EACH SCHEDULING ALGORITHM *********************************/
 
@@ -727,7 +745,7 @@ void firstComeFirstServeWrapper(struct Process processContainer[])
     FILE* randomNumberFile = fopen(RANDOM_NUMBER_FILE_NAME, "r");
     // Runs this the first time in order to have the final output be available
     while (TOTAL_FINISHED_PROCESSES != TOTAL_CREATED_PROCESSES)
-        simulateFirstComeFirstServe(currentPassNumber, processContainer, finishedProcessContainer, randomNumberFile);
+        simulateScheduler(currentPassNumber, processContainer, finishedProcessContainer, randomNumberFile, 0);
 
     fclose(randomNumberFile);
 
@@ -742,7 +760,7 @@ void firstComeFirstServeWrapper(struct Process processContainer[])
 
     randomNumberFile = fopen(RANDOM_NUMBER_FILE_NAME, "r");
     while (TOTAL_FINISHED_PROCESSES != TOTAL_CREATED_PROCESSES)
-        simulateFirstComeFirstServe(currentPassNumber, processContainer, finishedProcessContainer, randomNumberFile);
+        simulateScheduler(currentPassNumber, processContainer, finishedProcessContainer, randomNumberFile, 0);
     fclose(randomNumberFile);
     printf("The scheduling algorithm used was First Come First Served\n");
     printProcessSpecifics(processContainer);
@@ -756,7 +774,32 @@ void roundRobinWrapper(struct Process processContainer[])
 {
     printf("######################### START OF ROUND ROBIN #########################\n");
 
+    printStart(processContainer);
+    uint8_t currentPassNumber = 1;
 
+    struct Process finishedProcessContainer[TOTAL_CREATED_PROCESSES];
+    FILE* randomNumberFile = fopen(RANDOM_NUMBER_FILE_NAME, "r");
+    // Runs this the first time in order to have the final output be available
+    while (TOTAL_FINISHED_PROCESSES != TOTAL_CREATED_PROCESSES)
+        simulateScheduler(currentPassNumber, processContainer, finishedProcessContainer, randomNumberFile, 1);
+    fclose(randomNumberFile);
+
+    printFinal(finishedProcessContainer);
+    resetAfterRun(processContainer);
+    printf("\n");
+
+    ++currentPassNumber;
+
+    if (IS_VERBOSE_MODE)
+        printf("This detailed printout gives the state and remaining burst for each process\n");
+
+    randomNumberFile = fopen(RANDOM_NUMBER_FILE_NAME, "r");
+    while (TOTAL_FINISHED_PROCESSES != TOTAL_CREATED_PROCESSES)
+        simulateScheduler(currentPassNumber, processContainer, finishedProcessContainer, randomNumberFile, 1);
+    fclose(randomNumberFile);
+    printf("The scheduling algorithm used was Round Robin\n");
+    printProcessSpecifics(processContainer);
+    printSummaryData(processContainer);
 
     resetAfterRun(processContainer);        // Resets all values to initial conditions
     printf("######################### END OF ROUND ROBIN #########################\n");
@@ -840,6 +883,8 @@ int main(int argc, char *argv[])
 
         processContainer[currentNumberOfMixesCreated].isFirstTimeRunning = false;
 
+        processContainer[currentNumberOfMixesCreated].quantum = 2; // Value provided as described in requirements
+
         processContainer[currentNumberOfMixesCreated].nextInBlockedList = NULL;
         processContainer[currentNumberOfMixesCreated].nextInReadyQueue = NULL;
         processContainer[currentNumberOfMixesCreated].nextInReadySuspendedQueue = NULL;
@@ -850,7 +895,7 @@ int main(int argc, char *argv[])
     fclose(randomNumberFile);
 
     // First Come First Serve Run
-    firstComeFirstServeWrapper(processContainer);
+    //firstComeFirstServeWrapper(processContainer); //TODO uncomment at the end
 
     // Round Robin Run
     roundRobinWrapper(processContainer);
