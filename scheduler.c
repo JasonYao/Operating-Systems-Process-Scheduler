@@ -568,14 +568,28 @@ void DoBlockedProcesses(uint32_t randomNumber)
         enqueueReadySuspendedProcess(unBlockedNode);
     }
 
+    printf("Got to blocked 1\n");
     if (blockedProcessQueueSize != 0)
     {
+        printf("Got to blocked 2\n");
         struct processNode* currentNode = blockedHead;
+        printf("Blocked queue's head's pid is: %i\n", blockedHead->processID);
+        if (blockedHead->nextInBlocked != NULL)
+        {
+            printf("Blocked queue's head's next pid is: %i\n", blockedHead->nextInBlocked->processID);
+        }
+
+        printf("Blocked queue's tail's pid is: %i\n", blockedTail->processID);
         while (currentNode != NULL)
         {
+            printf("Got to blocked 3, with current node's pid: %i\n", currentNode->processID);
+            printf("Blocked queue size is: %i\n", blockedProcessQueueSize);
+            printf("Blocked queue's head's pid is: %i\n", blockedHead->processID);
+            printf("Blocked queue's tail's pid is: %i\n", blockedTail->processID);
             // Iterates through the blocked process queue
             if (currentNode->IOBurst == 0)
             {
+                printf("Got to blocked 4, with current node's pid: %i\n", currentNode->processID);
                 // IOBurst time is 0, moves to ready
                 currentNode->CPUBurst = 1 + (randomNumber % currentNode->B);
                 currentNode->status = 1;
@@ -593,7 +607,7 @@ void DoBlockedProcesses(uint32_t randomNumber)
                 else if (currentNode == blockedTail)
                 {
                     // Removes from the back
-                    printf("Removing from blocked to ready from the front:%i\n", blockedProcessQueueSize); //TODO remove after
+                    printf("Removing from blocked to ready from the back:%i\n", blockedProcessQueueSize); //TODO remove after
                     struct processNode* currentBlockedIterationProcess = blockedHead;
                     while (currentBlockedIterationProcess->nextInBlocked->nextInBlocked != NULL)
                     {currentBlockedIterationProcess = currentBlockedIterationProcess->nextInBlocked;}
@@ -605,11 +619,11 @@ void DoBlockedProcesses(uint32_t randomNumber)
                     --blockedProcessQueueSize;
 
                     enqueueReadyProcess(nodeToBeAddedToReady);
-                    printf("Removed from blocked to ready from the front:%i\n", blockedProcessQueueSize); //TODO remove after
+                    printf("Removed from blocked to ready from the back:%i\n", blockedProcessQueueSize); //TODO remove after
                 }
                 else
                 {
-                    printf("Removing from blocked to ready from the front:%i\n", blockedProcessQueueSize); //TODO remove after
+                    printf("Removing from blocked to ready from the middle:%i\n", blockedProcessQueueSize); //TODO remove after
                     // Removes from the middle
                     struct processNode* currentBlockedIterationProcess = blockedHead;
 
@@ -618,11 +632,12 @@ void DoBlockedProcesses(uint32_t randomNumber)
                     {currentBlockedIterationProcess = currentBlockedIterationProcess->nextInBlocked;}
 
                     struct processNode* nodeToBeAddedToReady = currentBlockedIterationProcess->nextInBlocked;
+
                     currentBlockedIterationProcess->nextInBlocked =
                             currentBlockedIterationProcess->nextInBlocked->nextInBlocked;
                     --blockedProcessQueueSize;
                     enqueueReadyProcess(nodeToBeAddedToReady);
-                    printf("Removed from blocked to ready from the front:%i\n", blockedProcessQueueSize); //TODO remove after
+                    printf("Removed from blocked to ready from the middle:%i\n", blockedProcessQueueSize); //TODO remove after
                 }
             } // End of dealing with removing any processes that need to be moved to ready
             currentNode = currentNode->nextInBlocked;
