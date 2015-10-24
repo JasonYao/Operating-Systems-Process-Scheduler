@@ -1,7 +1,6 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include <ctype.h>
 
 typedef enum {false, true} bool;        // Allows boolean types in C
 
@@ -23,9 +22,9 @@ struct Process {
     uint32_t IOBurst;                   // The amount of time until the process finishes being blocked
     uint32_t CPUBurst;                  // The CPU availability of the process (has to be > 1 to move to running)
 
-    int32_t quantum;                   // Used for schedulers that utilise pre-emption
+    int32_t quantum;                    // Used for schedulers that utilise pre-emption
 
-    bool isFirstTimeRunning;
+    bool isFirstTimeRunning;            // Used to check when to calculate the CPU burst when it hits running mode
 
     struct Process* nextInBlockedList;  // A pointer to the next process available in the blocked list
     struct Process* nextInReadyQueue;   // A pointer to the next process available in the ready queue
@@ -36,7 +35,7 @@ struct Process {
 // Flags to be set
 bool IS_VERBOSE_MODE = false;           // Flags whether the output should be detailed or not
 bool IS_RANDOM_MODE = false;            // Flags whether the output should include the random digit or not
-bool IS_PROCESS_RUNNING = false;        // Flags whether any process is currently running
+bool IS_FIRST_TIME_RUNNING_UNIPROGRAMMED = true;
 struct Process* UNIPROGRAMMED_PROCESS = NULL;
 
 uint32_t CURRENT_CYCLE = 0;             // The current cycle that each process is on
@@ -64,12 +63,12 @@ struct Process* blockedTail = NULL;
 uint32_t blockedProcessListSize = 0;
 
 // finished processes pointer
-struct Process* runningProcess = NULL;
+struct Process* CURRENT_RUNNING_PROCESS = NULL;
 
 /**
  * Reads a random non-negative integer X from a file named random-numbers (in the current directory)
  * NOTE: Only works if the integer values in random-number are less than 20 in length
- * @return The value 1 + (X % U)
+ * @return The CPUBurst, calculated with the function: 1 + (randomNumberFromFile % UpperBound)
  */
 uint32_t randomOS(uint32_t upperBound, FILE* randomNumberFile)
 {
@@ -82,7 +81,7 @@ uint32_t randomOS(uint32_t upperBound, FILE* randomNumberFile)
 /************************ START OF READY QUEUE HELPER FUNCTIONS *************************************/
 
 /**
-* A queue insertion function
+* A queue insertion function for the ready function
 */
 void enqueueReadyProcess(struct Process* newNode)
 {
@@ -109,17 +108,15 @@ void enqueueReadyProcess(struct Process* newNode)
  */
 struct Process* dequeueReadyProcess()
 {
-//    printf("Got to the start of dequeueReady\n");
     // Identical to removeFront() of a linked list
     if (readyProcessQueueSize == 0)
     {
         // Queue is empty, returns null
-//        printf("Got to the end of dequeueReady\n");
+        printf("ERROR: Attempted to dequeue from the ready process pool\n");
         return NULL;
     }
     else
     {
-//        printf("Queue is not empty, retains old head for return value\n");
         // Queue is not empty, retains the old head for the return value, and sets the new head
         struct Process* oldHead = readyHead;
         readyHead = readyHead->nextInReadyQueue;
@@ -129,7 +126,6 @@ struct Process* dequeueReadyProcess()
         if (readyProcessQueueSize == 0)
             readyTail = NULL;
         oldHead->nextInReadyQueue = NULL;
-//        printf("Got to the end of dequeueReady\n");
         return oldHead;
     }
 } // End of the ready process dequeue function
@@ -139,7 +135,7 @@ struct Process* dequeueReadyProcess()
 /************************ START OF READY SUSPENDED QUEUE HELPER FUNCTIONS *************************************/
 
 /**
-* A queue insertion function
+* A queue insertion function for the ready suspended queue
 */
 void enqueueReadySuspendedProcess(struct Process* newNode)
 {
@@ -170,6 +166,7 @@ struct Process* dequeueReadySuspendedProcess()
     if (readySuspendedProcessQueueSize == 0)
     {
         // Queue is empty, returns null
+        printf("ERROR: Attempted to dequeue from the readySuspended process pool\n");
         return NULL;
     }
     else
@@ -193,7 +190,7 @@ struct Process* dequeueReadySuspendedProcess()
 /************************ START OF BLOCKED LIST HELPER FUNCTIONS *************************************/
 
 /**
-* A queue insertion function
+* A queue insertion function for the blocked list
 */
 void addToBlockedList(struct Process* newNode)
 {
@@ -242,34 +239,32 @@ struct Process* dequeueBlockedProcess()
 
 /************************ START OF RUNNING PROGRAM FUNCTIONS *************************************/
 
-void DoBlockedProcesses()
+/**
+ * Processes any job in the blockedProcessesList
+ */
+void doBlockedProcesses()
 {
-//    printf("Got to doBlocked\n");
     if (blockedProcessListSize != 0)
     {
-//        printf("Does some operations in the blocked list\n");
+        // Blocked list is not empty, goes through each one to check if they need to be moved to ready or not
         struct Process* currentNode = blockedHead;
         while (currentNode != NULL)
         {
-//            printf("process with id: %i has an IOBurst of: %i\n", currentNode->processID, currentNode->IOBurst);
             // Iterates through the blocked process list
             if ( (int32_t) currentNode->IOBurst <= 0)
             {
-//                printf("IO burst is negative or 0\n");
                 // IOBurst time is 0, moves to ready
                 currentNode->status = 1;
 
                 // Removes this process from the blocked list to the ready queue
                 if (currentNode->processID == blockedHead->processID)
                 {
-//                    printf("About to move from the front of blocked to ready\n");
                     // Removes from the front, simply dequeues
                     struct Process* unBlockedProcess = dequeueBlockedProcess();
                     enqueueReadyProcess(unBlockedProcess);
                 }
                 else if (currentNode->processID == blockedTail->processID)
                 {
-//                    printf("About to move from the back of blocked to ready\n");
                     // Removes from the back
                     struct Process* currentBlockedIterationProcess = blockedHead;
                     while (currentBlockedIterationProcess->nextInBlockedList->nextInBlockedList != NULL)
@@ -286,7 +281,6 @@ void DoBlockedProcesses()
                 }
                 else
                 {
-//                    printf("About to move from the middle of blocked to ready\n");
                     // Removes from the middle
                     struct Process* currentBlockedIterationProcess = blockedHead;
 
@@ -305,72 +299,66 @@ void DoBlockedProcesses()
             } // End of dealing with removing any processes that need to be moved to ready
             currentNode = currentNode->nextInBlockedList;
         } // End of iterating through the blocked queue
-    }
-//    printf("Got to the end of doBlocked\n");
+    } // End of dealing with all blocked processes in the blocked list
 } // End of the doBlockedProcess function
 
-void DoRunningProcesses(struct Process finishedProcessContainer[], uint8_t schedulerAlgorithm)
+/**
+ * Processes any job that is currently running
+ * @param finishedProcessContainer The terminated processes, in array form, and in the order they each finished in.
+ * @param schedulerAlgorithm Which scheduler algorithm this function should run. 0 = FCFS, 1 = RR, 2 = UNI, 3 = SJF.
+ */
+void doRunningProcesses(struct Process finishedProcessContainer[], uint8_t schedulerAlgorithm)
 {
-//    printf("Got to doRunning\n");
-    // Process finished running, needs to be moved to either finishedQueue, blockedQueue, or pre-empted into readyQueue
-    if (IS_PROCESS_RUNNING)
+    if (CURRENT_RUNNING_PROCESS != NULL)
     {
-//        printf("A process is running, is in doRunning\n");
-        if (runningProcess->C == runningProcess->currentCPUTimeRun)
-        {
-//            printf("A process has completed running, moves to completed block\n");
-            // Process has completed running, moves to the completed block
-            runningProcess->status = 4;
-            runningProcess->finishingTime = CURRENT_CYCLE;
+        // A process is currently running
 
-            finishedProcessContainer[TOTAL_FINISHED_PROCESSES] = *runningProcess; //TODO might need to do this brute force
-            runningProcess = NULL;
-            IS_PROCESS_RUNNING = false;
+        // Calculates the IOburst the first time around
+        if (CURRENT_RUNNING_PROCESS->isFirstTimeRunning == true)
+        {
+            CURRENT_RUNNING_PROCESS->isFirstTimeRunning = false;
+            CURRENT_RUNNING_PROCESS->IOBurst = 1 + (CURRENT_RUNNING_PROCESS->M * CURRENT_RUNNING_PROCESS->CPUBurst);
+        }
+
+        if (CURRENT_RUNNING_PROCESS->C == CURRENT_RUNNING_PROCESS->currentCPUTimeRun)
+        {
+            // Process has completed running, moves to finished process container
+            CURRENT_RUNNING_PROCESS->status = 4;
+            CURRENT_RUNNING_PROCESS->finishingTime = CURRENT_CYCLE;
+            finishedProcessContainer[TOTAL_FINISHED_PROCESSES] = *CURRENT_RUNNING_PROCESS;
             ++TOTAL_FINISHED_PROCESSES;
             if (schedulerAlgorithm == 2)
                 UNIPROGRAMMED_PROCESS = NULL;
+            CURRENT_RUNNING_PROCESS = NULL;
         }
-        else if (runningProcess->CPUBurst > 0)
+        else if (CURRENT_RUNNING_PROCESS->CPUBurst <= 0)
         {
-//            printf("A process has not completed running, simply decrements the CPU Burst\n");
-            // Process has not completed running, still has CPU burst
-            if (runningProcess->isFirstTimeRunning == true)
-            {
-//                printf("Got to inside of isFirstTimeRunning\n");
-                runningProcess->isFirstTimeRunning = false;
-                runningProcess->IOBurst = runningProcess->M * (runningProcess->CPUBurst + 1); //TODO check if required
-                runningProcess->status = 2; // Shouldn't require this, but switches to ready occur without this statement
-            }
-        }
-        else if ((runningProcess->quantum <= 0) && (schedulerAlgorithm == 1))
+            // Process has run out of CPU burst, moves to blocked
+            CURRENT_RUNNING_PROCESS->status = 3;
+            addToBlockedList(CURRENT_RUNNING_PROCESS);
+            CURRENT_RUNNING_PROCESS = NULL;
+        } // End of dealing with the running process that has run out of CPU Burst, moved to blocked list
+        else if ((schedulerAlgorithm == 1) && (CURRENT_RUNNING_PROCESS->quantum <= 0))
         {
-            // Process has not completed running, with no more CPU Burst, and a quantum of 0 while in RR mode
-            runningProcess->status = 1;
-            enqueueReadyProcess(runningProcess);
-            runningProcess = NULL;
-            IS_PROCESS_RUNNING = false;
-        }
+            // Process has been preempted, moves to ready
+            CURRENT_RUNNING_PROCESS->status = 1;
+            enqueueReadyProcess(CURRENT_RUNNING_PROCESS);
+            CURRENT_RUNNING_PROCESS = NULL;
+        } // End of dealing with the running process being pre-empted back to the ready queue
         else
         {
-//            printf("A process has not completed running, moves to blocked list\n");
-            //Process has not completed running, no more CPU burst, moves to the blocked list
-            runningProcess->status = 3;
-            addToBlockedList(runningProcess);
-            runningProcess = NULL;
-            IS_PROCESS_RUNNING = false;
-        }
-    }
-    else
-    {
-        // No processes being run, does nothing
-    }
-} // End of the doRunningProcess function
+            // Process still has CPU burst, stays in running
+            CURRENT_RUNNING_PROCESS->status = 2;
+        }// End of dealing with the running process remaining in the running pool
+    } // End of dealing with the running queue when a process is running
+} // End of the do running process function
 
+/**
+ * Starts any process that begins at their designated start time (their A value)
+ * @param processContainer The original processes inputted, in array form
+ */
 void createProcesses(struct Process processContainer[])
 {
-//    printf("Got to createProcess\n");
-
-    // Any other scheduler algorithm
     uint32_t i = 0;
     for (; i < TOTAL_CREATED_PROCESSES; ++i)
     {
@@ -379,28 +367,25 @@ void createProcesses(struct Process processContainer[])
             // Time for this process to be created, and enqueued to the ready queue
             ++TOTAL_STARTED_PROCESSES;
             processContainer[i].status = 1; // Sets the status to ready
-            if (i == 0)
+            if ((UNIPROGRAMMED_PROCESS == NULL) && (IS_FIRST_TIME_RUNNING_UNIPROGRAMMED == true))
+            {
+                IS_FIRST_TIME_RUNNING_UNIPROGRAMMED = false;
                 UNIPROGRAMMED_PROCESS = &processContainer[i];
+            }
             enqueueReadyProcess(&processContainer[i]);
         }
     }
-
 } // End of the createProcess function
 
-void DoReadyProcesses(uint8_t schedulerAlgorithm, uint8_t currentPassNumber, FILE* randomFile) {
-//    printf("Got to doReady\n");
-    // Deals with the ready suspended queue first
-    if ((readySuspendedProcessQueueSize != 0) && (schedulerAlgorithm == 2)) {
-        if (UNIPROGRAMMED_PROCESS == NULL) {
-            // There is no process running, dequeues a single process and readies it
-            struct Process *resumedProcess = dequeueReadySuspendedProcess();
-            resumedProcess->status = 1;
-            UNIPROGRAMMED_PROCESS = resumedProcess;
-            enqueueReadyProcess(resumedProcess);
-        }
-    }
-    // End of dealing with the ready suspended queue
-
+/**
+ * Processes any job in the readyQueue or readySuspendedQueue
+ * @param schedulerAlgorithm Which scheduler algorithm this function should run. 0 = FCFS, 1 = RR, 2 = UNI, 3 = SJF.
+ * @param currentPassNumber The current pass this simulation is run (either pass 1 or 2 for each algorithm)
+ * @param randomFile The file to retrieve a "random" number to be used in calculating CPU Burst
+ */
+void doReadyProcesses(uint8_t schedulerAlgorithm, uint8_t currentPassNumber, FILE* randomFile)
+{
+    // Suspends anything that isn't the UNIPROGRAMMED process
     if ((UNIPROGRAMMED_PROCESS != NULL) && (readyProcessQueueSize != 0)
         && (readyHead != UNIPROGRAMMED_PROCESS) && (schedulerAlgorithm == 2))
     {
@@ -414,17 +399,26 @@ void DoReadyProcesses(uint8_t schedulerAlgorithm, uint8_t currentPassNumber, FIL
         }
     }
 
+    // Deals with the ready suspended queue
+    if ((readySuspendedProcessQueueSize != 0) && (schedulerAlgorithm == 2))
+    {
+        if (UNIPROGRAMMED_PROCESS == NULL) {
+            // There is no process running, dequeues a single process and readies it
+            struct Process *resumedProcess = dequeueReadySuspendedProcess();
+            resumedProcess->status = 1;
+            UNIPROGRAMMED_PROCESS = resumedProcess;
+            enqueueReadyProcess(resumedProcess);
+        }
+    }// End of dealing with the ready suspended queue
+
     // Deals with the ready queue second
     if (readyProcessQueueSize != 0)
     {
-        if (IS_PROCESS_RUNNING == false)
+        if (CURRENT_RUNNING_PROCESS == NULL)
         {
-//            printf("There is a process ready, and no process running\n");
-//            printf("The number of ready processes is: %i\n", readyProcessQueueSize);
             // No process is running, is able to pick a process to run
             if (schedulerAlgorithm == 3)
             {
-//                printf("Got to algo schedule 3\n");
                 // Scheduler is shortest job first, meaning in lowest remaining CPU time required
                 uint32_t i = 0;
                 struct Process* currentReadyProcess = readyHead;
@@ -440,8 +434,7 @@ void DoReadyProcesses(uint8_t schedulerAlgorithm, uint8_t currentPassNumber, FIL
                     currentReadyProcess = currentReadyProcess->nextInReadyQueue;
                 }// End of iterating through to find the shortest time remaining
 
-//                printf("Shortest pid is: %i\n", shortestJobProcess->processID);
-                // Needs to deal with dequeueing the shortest job from the ready list
+                // Needs to deal with removing the shortest job from the ready list (from front, back, and middle)
                 struct Process* readiedProcess;
 
                 if (readyHead->processID == shortestJobProcess->processID)
@@ -452,7 +445,6 @@ void DoReadyProcesses(uint8_t schedulerAlgorithm, uint8_t currentPassNumber, FIL
                 else if (readyTail->processID == shortestJobProcess->processID)
                 {
                     // Dequeues from the tail of ready list
-//                    printf("Got to dequeue from the tail\n");
                     struct Process* currentReadyIterationProcess = readyHead;
                     while (currentReadyIterationProcess->nextInReadyQueue->nextInReadyQueue != NULL)
                     {currentReadyIterationProcess = currentReadyIterationProcess->nextInReadyQueue;}
@@ -488,44 +480,38 @@ void DoReadyProcesses(uint8_t schedulerAlgorithm, uint8_t currentPassNumber, FIL
                 char str[20];
                 uint32_t unsignedRandomInteger = (uint32_t) atoi(fgets(str, 20, randomFile));
                 // Prints out the random number, assuming the random flag is passed in
-                if ((IS_RANDOM_MODE) && (currentPassNumber % 2 != 0)) // TODO change ! to = after testing
+                if ((IS_RANDOM_MODE) && (currentPassNumber % 2 == 0))
                     printf("Find burst when choosing ready process to run %i\n", unsignedRandomInteger);
 
-                uint32_t newCPUBurst = 1 + (unsignedRandomInteger % shortestJobProcess ->B);
+                uint32_t newCPUBurst = 1 + (unsignedRandomInteger % shortestJobProcess->B);
                 // Checks if the new CPU Burst time is greater than the time remaining
                 if (newCPUBurst > (readiedProcess->C - readiedProcess->currentCPUTimeRun))
                     newCPUBurst = readiedProcess->C - readiedProcess->currentCPUTimeRun;
                 readiedProcess->CPUBurst = newCPUBurst;
-
-                IS_PROCESS_RUNNING = true;
-                runningProcess = readiedProcess;
-
+                CURRENT_RUNNING_PROCESS = readiedProcess;
             } // End of dealing with shortest job first
             else
             {
-                // Is running one of the other schedulers
-                //            printf("Got to 1\n");
-                // Only does things when there are no processes running
+                // Is running one of the other schedulers, with no process currently running
                 struct Process* readiedNode = dequeueReadyProcess();
 
-//            printf("Got to 2\n");
                 // Calculates CPU Burst stuff
                 char str[20];
                 uint32_t unsignedRandomInteger = (uint32_t) atoi(fgets(str, 20, randomFile));
                 // Prints out the random number, assuming the random flag is passed in
-                if ((IS_RANDOM_MODE) && (currentPassNumber % 2 != 0)) // TODO change ! to = after testing
+                if ((IS_RANDOM_MODE) && (currentPassNumber % 2 == 0))
                     printf("Find burst when choosing ready process to run %i\n", unsignedRandomInteger);
 
-//            printf("Got to 3\n");
                 uint32_t newCPUBurst = 1 + (unsignedRandomInteger % readiedNode->B);
                 // Checks if the new CPU Burst time is greater than the time remaining
                 if (newCPUBurst > (readiedNode->C - readiedNode->currentCPUTimeRun))
                     newCPUBurst = readiedNode->C - readiedNode->currentCPUTimeRun;
                 readiedNode->CPUBurst = newCPUBurst;
 
+                // Runs the process if the CPU burst is positive
                 if (readiedNode->CPUBurst > 0)
                 {
-                    // There are no running processes, runs the process, and adds it to the running pool
+                    // There are no running processes, and the CPU Burst is positive, so sets the process to run
                     readiedNode->status = 2;
                     readiedNode->isFirstTimeRunning = true;
 
@@ -534,15 +520,11 @@ void DoReadyProcesses(uint8_t schedulerAlgorithm, uint8_t currentPassNumber, FIL
                         // Scheduler is round robin, sets the quantum
                         readiedNode->quantum = 2;
                     }
-
-                    IS_PROCESS_RUNNING = true;
-                    runningProcess = readiedNode;
+                    CURRENT_RUNNING_PROCESS = readiedNode;
                 }
-
             } // End of running FCFS, RR or Uniprogrammed scheduler process readying sequence
         } // End of dealing if there is no process running
-    }
-    // End of dealing with the ready queue
+    }// End of dealing with the ready queue
 
     // For uniprogrammed only
     if ((schedulerAlgorithm == 2) && (readyProcessQueueSize != 0))
@@ -551,7 +533,7 @@ void DoReadyProcesses(uint8_t schedulerAlgorithm, uint8_t currentPassNumber, FIL
         uint32_t i = 0;
         for (; i < readyProcessQueueSize; ++i)
         {
-            if (IS_PROCESS_RUNNING == true)
+            if (CURRENT_RUNNING_PROCESS != NULL)
             {
                 // [UNIPROGRAMMED] There are running processes, suspends the ready process to the ready suspended pool
                 struct Process* suspendedNode = dequeueReadyProcess();
@@ -559,15 +541,17 @@ void DoReadyProcesses(uint8_t schedulerAlgorithm, uint8_t currentPassNumber, FIL
                 enqueueReadySuspendedProcess(suspendedNode);
             }
         }
-    }
-
-
-//    printf("Got to the end of doReadyProcess\n");
+    } // End of suspending to ready suspended any remaining processes [UNIPROGRAMMED]
 } // End of the doReadyProcess function
 
+/**
+ * Alters all timers for any processes requiring a timer change
+ * @param processContainer The original processes inputted, in array form
+ * @param schedulerAlgorithm Which scheduler algorithm this function should run. 0 = FCFS, 1 = RR, 2 = UNI, 3 = SJF.
+ */
 void incrementTimers(struct Process processContainer[], uint8_t schedulerAlgorithm)
 {
-//    printf("Got to incrementTimers\n");
+    // Iterates through all processes, and alters any timers that need changing (decrementing CPUBurst if running, etc)
     uint32_t i = 0;
     for (; i < TOTAL_CREATED_PROCESSES; ++i)
     {
@@ -579,10 +563,7 @@ void incrementTimers(struct Process processContainer[], uint8_t schedulerAlgorit
             case 3:
                 // Node is I/O blocked (I/O time)
                 ++processContainer[i].currentIOBlockedTime;
-//                printf("For Process %i, the current IOBlockedTime is: %i\n", i, processContainer[i].currentIOBlockedTime);
                 --processContainer[i].IOBurst;
-//                printf("For Process %i, the current IO burst is: %i\n", i, processContainer[i].IOBurst);
-                //TODO check if need to add calculate cpu burst here, or earlier
                 break;
             case 2:
                 // Node is running (CPU time)
@@ -597,7 +578,6 @@ void incrementTimers(struct Process processContainer[], uint8_t schedulerAlgorit
             case 1:
                 // Node is ready, or in ready suspended (waiting)
                 ++processContainer[i].currentWaitingTime;
-//                printf("For Process %i, the current waiting time is: %i\n", i, processContainer[i].currentWaitingTime);
                 break;
             case 4:
                 // Node is terminated
@@ -609,6 +589,7 @@ void incrementTimers(struct Process processContainer[], uint8_t schedulerAlgorit
         } // End of the per process status print statement
     }
 
+    // Checks if a process has been blocked this cycle, used in calculating the overall time blocked
     for (i = 0; i < TOTAL_CREATED_PROCESSES; ++i)
     {
         if (processContainer[i].status == 3)
@@ -618,16 +599,14 @@ void incrementTimers(struct Process processContainer[], uint8_t schedulerAlgorit
             break;
         }
     }
-//    printAllQueueSizes();
-//    if (IS_PROCESS_RUNNING)
-//        printf("There is a process running\n");
-//    printf("\n");
 } // End of the increment timers function
 
 /************************ END OF RUNNING PROGRAM FUNCTIONS *************************************/
 
 /**
  * Sets global flags for output depending on user input
+ * @param argc The number of arguments in argv, where each argument is space deliminated
+ * @param argv The command used to run the program, with each argument space deliminated
  */
 uint8_t setFlags(int32_t argc, char *argv[])
 {
@@ -652,6 +631,7 @@ uint8_t setFlags(int32_t argc, char *argv[])
 
 /**
  * Prints to standard output the original input
+ * @param processContainer The original processes inputted, in array form
  */
 void printStart(struct Process processContainer[])
 {
@@ -668,6 +648,7 @@ void printStart(struct Process processContainer[])
 
 /**
  * Prints to standard output the final output
+ * @param finishedProcessContainer The terminated processes, in array form, and in the order they each finished in.
  */
 void printFinal(struct Process finishedProcessContainer[])
 {
@@ -682,6 +663,10 @@ void printFinal(struct Process finishedProcessContainer[])
     printf("\n");
 } // End of the print final function
 
+/**
+ * Prints out specifics for each process.
+ * @param processContainer The original processes inputted, in array form
+ */
 void printProcessSpecifics(struct Process processContainer[])
 {
     uint32_t i = 0;
@@ -699,6 +684,10 @@ void printProcessSpecifics(struct Process processContainer[])
     }
 } // End of the print process specifics function
 
+/**
+ * Prints out the summary data
+ * @param processContainer The original processes inputted, in array form
+ */
 void printSummaryData(struct Process processContainer[])
 {
     uint32_t i = 0;
@@ -721,8 +710,8 @@ void printSummaryData(struct Process processContainer[])
     // Calculates the IO utilisation
     double IOUtilisation = (double) TOTAL_NUMBER_OF_CYCLES_SPENT_BLOCKED / finalFinishingTime;
 
-    // Calculates the throughput
-    double throughput =  100 * ((double) TOTAL_CREATED_PROCESSES/ finalFinishingTime); // Number of processes over the final finishing time times 100
+    // Calculates the throughput (Number of processes over the final finishing time times 100)
+    double throughput =  100 * ((double) TOTAL_CREATED_PROCESSES/ finalFinishingTime);
 
     // Calculates the average turnaround time
     double averageTurnaroundTime = totalTurnaroundTime / TOTAL_CREATED_PROCESSES;
@@ -739,13 +728,17 @@ void printSummaryData(struct Process processContainer[])
     printf("\tAverage waiting time: %6f\n", averageWaitingTime);
 } // End of the print summary data function
 
+/**
+ * Completely resets every counter, global variable, timer, and anything else that was changed since the start of a run
+ * @param processContainer The original processes inputted, in array form
+ */
 void resetAfterRun(struct Process processContainer[])
 {
     CURRENT_CYCLE = 0;
     TOTAL_STARTED_PROCESSES = 0;
     TOTAL_FINISHED_PROCESSES = 0;
     TOTAL_NUMBER_OF_CYCLES_SPENT_BLOCKED = 0;
-    IS_PROCESS_RUNNING = false;
+    IS_FIRST_TIME_RUNNING_UNIPROGRAMMED = true;
     UNIPROGRAMMED_PROCESS = NULL;
 
     // readyQueue head & tail pointers
@@ -763,7 +756,7 @@ void resetAfterRun(struct Process processContainer[])
     blockedTail = NULL;
     blockedProcessListSize = 0;
 
-    runningProcess = NULL;
+    CURRENT_RUNNING_PROCESS = NULL;
 
     uint32_t i = 0;
     FILE* randomNumberFile = fopen(RANDOM_NUMBER_FILE_NAME, "r");
@@ -791,16 +784,18 @@ void resetAfterRun(struct Process processContainer[])
 
 /********************* END OF GLOBAL OUTPUT FUNCTIONS *********************************************************/
 
+/**
+ * Simulates the scheduler for each algorithm defined below.
+ * @param currentPassNumber The current pass this simulation is run (either pass 1 or 2 for each algorithm)
+ * @param processContainer The original processes inputted, in array form
+ * @param finishedProcessContainer The terminated processes array, in which processes are added as they terminated
+ * @param randomFile The file to retrieve a "random" number to be used in calculating CPU Burst
+ * @param algorithmScheduler Which scheduler algorithm this function should run. 0 = FCFS, 1 = RR, 2 = UNI, 3 = SJF.
+ */
 void simulateScheduler(uint8_t currentPassNumber, struct Process processContainer[],
                        struct Process finishedProcessContainer[], FILE* randomFile, uint8_t algorithmScheduler)
 {
-//    if (CURRENT_CYCLE == 20) //TODO remove after
-//    {
-//        printf("Exiting due to retardedness\n"); //TODO remove after
-//        exit(1);
-//    }
-
-    if ((IS_VERBOSE_MODE) && ((currentPassNumber) % 2 != 0)) //TODO remove ! after testing
+    if ((IS_VERBOSE_MODE) && ((currentPassNumber) % 2 == 0))
     {
         // Prints out the state of each process during the current cycle
         printf("Before cycle\t%i:\t", CURRENT_CYCLE);
@@ -838,15 +833,17 @@ void simulateScheduler(uint8_t currentPassNumber, struct Process processContaine
         printf("\n");
     }
 
-    DoBlockedProcesses();
-    DoRunningProcesses(finishedProcessContainer, algorithmScheduler);
-    // Checks whether the processes are all created, so it can skip creation if not required
+    doRunningProcesses(finishedProcessContainer, algorithmScheduler);
+    doBlockedProcesses();
+
     if (TOTAL_STARTED_PROCESSES != TOTAL_CREATED_PROCESSES)
     {
         // Not all processes created, goes into creation loop
         createProcesses(processContainer);
     }
-    DoReadyProcesses(algorithmScheduler, currentPassNumber, randomFile);
+
+    // Checks whether the processes are all created, so it can skip creation if not required
+    doReadyProcesses(algorithmScheduler, currentPassNumber, randomFile);
     incrementTimers(processContainer, algorithmScheduler);
 
     ++CURRENT_CYCLE;
@@ -857,154 +854,9 @@ void simulateScheduler(uint8_t currentPassNumber, struct Process processContaine
 /******************* START OF THE OUTPUT WRAPPER FOR EACH SCHEDULING ALGORITHM *********************************/
 
 /**
- * Wrapper for the first come first servce scheduler algorithm
+ * Scheduler wrapper for all scheduler types. NOTE: In order to keep the same format as the given outputs,
+ * this scheduler runs each scheduler algorithm, twice, in order to be able to print out the final output early on.
  */
-void firstComeFirstServeWrapper(struct Process processContainer[])
-{
-    printf("######################### START OF FIRST COME FIRST SERVE #########################\n");
-
-    printStart(processContainer);
-    uint8_t currentPassNumber = 1;
-    uint8_t algorithmScheduler = 0;
-
-    struct Process finishedProcessContainer[TOTAL_CREATED_PROCESSES];
-    FILE* randomNumberFile = fopen(RANDOM_NUMBER_FILE_NAME, "r");
-    // Runs this the first time in order to have the final output be available
-    while (TOTAL_FINISHED_PROCESSES != TOTAL_CREATED_PROCESSES)
-        simulateScheduler(currentPassNumber, processContainer, finishedProcessContainer, randomNumberFile, algorithmScheduler);
-
-    fclose(randomNumberFile);
-
-    printFinal(finishedProcessContainer);
-    resetAfterRun(processContainer);
-    printf("\n");
-
-    ++currentPassNumber;
-
-    if (IS_VERBOSE_MODE)
-        printf("This detailed printout gives the state and remaining burst for each process\n");
-
-    randomNumberFile = fopen(RANDOM_NUMBER_FILE_NAME, "r");
-    while (TOTAL_FINISHED_PROCESSES != TOTAL_CREATED_PROCESSES)
-        simulateScheduler(currentPassNumber, processContainer, finishedProcessContainer, randomNumberFile, algorithmScheduler);
-    fclose(randomNumberFile);
-    printf("The scheduling algorithm used was First Come First Served\n");
-    printProcessSpecifics(processContainer);
-    printSummaryData(processContainer);
-
-    resetAfterRun(processContainer);        // Resets all values to initial conditions
-    printf("######################### END OF FCFS #########################\n");
-} // End of the first come first serve wrapper
-
-void roundRobinWrapper(struct Process processContainer[])
-{
-    printf("######################### START OF ROUND ROBIN #########################\n");
-
-    printStart(processContainer);
-    uint8_t currentPassNumber = 1;
-    uint8_t algorithmScheduler = 1;
-
-    struct Process finishedProcessContainer[TOTAL_CREATED_PROCESSES];
-    FILE* randomNumberFile = fopen(RANDOM_NUMBER_FILE_NAME, "r");
-    // Runs this the first time in order to have the final output be available
-    while (TOTAL_FINISHED_PROCESSES != TOTAL_CREATED_PROCESSES)
-        simulateScheduler(currentPassNumber, processContainer, finishedProcessContainer, randomNumberFile, algorithmScheduler);
-    fclose(randomNumberFile);
-
-    printFinal(finishedProcessContainer);
-    resetAfterRun(processContainer);
-    printf("\n");
-
-    ++currentPassNumber;
-
-    if (IS_VERBOSE_MODE)
-        printf("This detailed printout gives the state and remaining burst for each process\n");
-
-    randomNumberFile = fopen(RANDOM_NUMBER_FILE_NAME, "r");
-    while (TOTAL_FINISHED_PROCESSES != TOTAL_CREATED_PROCESSES)
-        simulateScheduler(currentPassNumber, processContainer, finishedProcessContainer, randomNumberFile, algorithmScheduler);
-    fclose(randomNumberFile);
-    printf("The scheduling algorithm used was Round Robin\n");
-    printProcessSpecifics(processContainer);
-    printSummaryData(processContainer);
-
-    resetAfterRun(processContainer);        // Resets all values to initial conditions
-    printf("######################### END OF ROUND ROBIN #########################\n");
-} // End of the print round robin function
-
-
-void uniprogrammedWrapper(struct Process processContainer[])
-{
-    printf("######################### START OF UNIPROGRAMMED #########################\n");
-
-    printStart(processContainer);
-    uint8_t currentPassNumber = 1;
-    uint8_t algorithmScheduler = 2;
-
-    struct Process finishedProcessContainer[TOTAL_CREATED_PROCESSES];
-    FILE* randomNumberFile = fopen(RANDOM_NUMBER_FILE_NAME, "r");
-    // Runs this the first time in order to have the final output be available
-    while (TOTAL_FINISHED_PROCESSES != TOTAL_CREATED_PROCESSES)
-        simulateScheduler(currentPassNumber, processContainer, finishedProcessContainer, randomNumberFile, algorithmScheduler);
-    fclose(randomNumberFile);
-
-    printFinal(finishedProcessContainer);
-    resetAfterRun(processContainer);
-    printf("\n");
-
-    ++currentPassNumber;
-
-    if (IS_VERBOSE_MODE)
-        printf("This detailed printout gives the state and remaining burst for each process\n");
-
-    randomNumberFile = fopen(RANDOM_NUMBER_FILE_NAME, "r");
-    while (TOTAL_FINISHED_PROCESSES != TOTAL_CREATED_PROCESSES)
-        simulateScheduler(currentPassNumber, processContainer, finishedProcessContainer, randomNumberFile, algorithmScheduler);
-    fclose(randomNumberFile);
-    printf("The scheduling algorithm used was Uniprogrammed\n");
-    printProcessSpecifics(processContainer);
-    printSummaryData(processContainer);
-
-    resetAfterRun(processContainer);        // Resets all values to initial conditions
-    printf("######################### END OF UNIPROGRAMMED #########################\n");
-} // End of the print uniprogrammed function
-
-void shortestJobFirstWrapper(struct Process processContainer[])
-{
-    printf("######################### START OF SHORTEST JOB FIRST #########################\n");
-
-    printStart(processContainer);
-    uint8_t currentPassNumber = 1;
-    uint8_t algorithmScheduler = 3;
-
-    struct Process finishedProcessContainer[TOTAL_CREATED_PROCESSES];
-    FILE* randomNumberFile = fopen(RANDOM_NUMBER_FILE_NAME, "r");
-    // Runs this the first time in order to have the final output be available
-    while (TOTAL_FINISHED_PROCESSES != TOTAL_CREATED_PROCESSES)
-        simulateScheduler(currentPassNumber, processContainer, finishedProcessContainer, randomNumberFile, algorithmScheduler);
-    fclose(randomNumberFile);
-
-    printFinal(finishedProcessContainer);
-    resetAfterRun(processContainer);
-    printf("\n");
-
-    ++currentPassNumber;
-
-    if (IS_VERBOSE_MODE)
-        printf("This detailed printout gives the state and remaining burst for each process\n");
-
-    randomNumberFile = fopen(RANDOM_NUMBER_FILE_NAME, "r");
-    while (TOTAL_FINISHED_PROCESSES != TOTAL_CREATED_PROCESSES)
-        simulateScheduler(currentPassNumber, processContainer, finishedProcessContainer, randomNumberFile, algorithmScheduler);
-    fclose(randomNumberFile);
-    printf("The scheduling algorithm used was Shortest Job First\n");
-    printProcessSpecifics(processContainer);
-    printSummaryData(processContainer);
-
-    resetAfterRun(processContainer);        // Resets all values to initial conditions
-    printf("######################### END OF SHORTEST JOB FIRST #########################\n");
-} // End of the print shortest job first function
-
 void schedulerWrapper (struct Process processContainer[], uint8_t algorithmScheduler)
 {
     // Prints the initial delimiter for each scheduler
@@ -1023,8 +875,9 @@ void schedulerWrapper (struct Process processContainer[], uint8_t algorithmSched
             printf("######################### START OF SHORTEST JOB FIRST #########################\n");
             break;
         default:
-            printf("Error: invalid scheduler algorithm utilised\n");
-            exit(1);
+            printf("Error: invalid scheduler algorithm utilised, defaulting to FCFS\n");
+            algorithmScheduler = 0;
+            break;
     }
 
     printStart(processContainer);
@@ -1066,6 +919,8 @@ void schedulerWrapper (struct Process processContainer[], uint8_t algorithmSched
         case 3:
             printf("The scheduling algorithm used was Shortest Job First\n");
             break;
+        default:
+            break;
     }
 
     printProcessSpecifics(processContainer);
@@ -1086,6 +941,8 @@ void schedulerWrapper (struct Process processContainer[], uint8_t algorithmSched
             break;
         case 3:
             printf("######################### END OF SHORTEST JOB FIRST #########################\n");
+            break;
+        default:
             break;
     }
 } // End of the scheduler wrapper function for all schedule algorithms
@@ -1159,19 +1016,15 @@ int main(int argc, char *argv[])
     fclose(randomNumberFile);
 
     // First Come First Serve Run
-    //firstComeFirstServeWrapper(processContainer); //TODO uncomment at the end
     schedulerWrapper(processContainer, 0);
 
     // Round Robin Run
-    //roundRobinWrapper(processContainer);
     schedulerWrapper(processContainer, 1);
 
     // Uniprogrammed Run
-//    uniprogrammedWrapper(processContainer);
     schedulerWrapper(processContainer, 2);
 
     // Shortest Job First Run
-//    shortestJobFirstWrapper(processContainer);
     schedulerWrapper(processContainer, 3);
 
     return EXIT_SUCCESS;
