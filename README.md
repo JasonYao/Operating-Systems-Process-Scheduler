@@ -8,6 +8,7 @@ To run this program, please make sure that the random number file provided is in
 is called `random-numbers`.
 
 To compile:
+
 `gcc scheduler.c -o scheduler`
 
 To run:
