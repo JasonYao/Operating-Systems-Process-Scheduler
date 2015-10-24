@@ -2,6 +2,30 @@
 
 By Jason Yao, [github](https://github.com/JasonYao/Operating-Systems-Process-Scheduler)
 
+## Information For The Grader
+
+To run this program, please make sure that the random number file provided is in the same directory that it is being run in, and that the random number file
+is called `random-numbers`.
+
+To compile:
+`gcc scheduler.c -o scheduler`
+
+To run:
+
+	`./scheduler <flag_1> <flag_2> <input_filename>`
+
+	E.g.: Normal
+
+		`./scheduler testing/input/input-1`
+
+	E.g.: With random number output only
+
+		`./scheduler --random testing/input/input-1`
+
+	E.g.: With both verbose and random number output
+
+		`./scheduler --verbose --random testing/input/input-1`
+
 ## Description
 
 Processes are defined as a program in execution. Process scheduling occurs when a process manager utilises
